@@ -2,6 +2,7 @@ import glob
 import os
 import re
 import subprocess
+import buildcfg
 
 SHF_ALLOC = 0x2
 SHF_EXECINSTR = 0x4
@@ -23,7 +24,7 @@ def read_keep_nl(path):
 
 def load_relocs(repo):
     return {os.path.normcase(os.path.abspath(p)): read_keep_nl(p)
-            for p in sorted(glob.glob(repo + "/config/usa/arm9/**/relocs.txt", recursive=True))}
+            for p in sorted(glob.glob(repo + f"/{buildcfg.config_dir('main')}/**/relocs.txt", recursive=True))}
 
 
 def module_tag(module):

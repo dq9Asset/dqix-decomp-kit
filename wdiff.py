@@ -89,7 +89,7 @@ if SEC is None:
 
 
 _OBJ = f"{SCR}/wdiff_{os.getpid()}.o"
-r = subprocess.run([CC] + FLAGS + ["-c", SRC, "-o", _OBJ], capture_output=True, text=True)
+r = subprocess.run(buildcfg.tool_command(CC) + FLAGS + ["-c", SRC, "-o", _OBJ], capture_output=True, text=True)
 if r.returncode != 0:
     fail("COMPILE-FAIL: " + (r.stdout + r.stderr)[-600:])
 try:

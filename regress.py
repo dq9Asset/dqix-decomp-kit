@@ -1273,7 +1273,7 @@ def _compile_elf(text, repo):
         src, obj = os.path.join(d, "t.cpp"), os.path.join(d, "t.o")
         with open(src, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
-        r = subprocess.run([buildcfg.CC] + list(buildcfg.FLAGS) + ["-c", src, "-o", obj], cwd=repo,
+        r = subprocess.run(buildcfg.tool_command(buildcfg.CC) + list(buildcfg.FLAGS) + ["-c", src, "-o", obj], cwd=repo,
                            capture_output=True, text=True)
         if r.returncode:
             return "COMPILE " + (r.stdout + r.stderr)[-200:]
@@ -1878,6 +1878,74 @@ def _rename_respects_region_blocks():
             "#endif\nvoid f() { Mat4x4_ConvertTo4x3(); _Z18MarkGBABusReleasedv(); }\n")
     if out != want:
         return "rewrote a region block wrongly:\n" + out
+
+
+@check("gate tool runner follows configure on Windows and Linux",
+       "executing MWCC .exe directly on Linux prevented every region's gate from compiling")
+def _gate_tool_runner():
+    import buildcfg
+    old = buildcfg._cfg.WINE
+    try:
+        for runner, prefix in (("", []), ("./wibo", [os.path.join(buildcfg.REPO, "wibo")]),
+                               ("/tmp/runner with spaces", ["/tmp/runner with spaces"]),
+                               ("wine", ["wine"])):
+            buildcfg._cfg.WINE = runner
+            if buildcfg.tool_command("compiler.exe") != prefix + ["compiler.exe"]:
+                return f"incorrect runner prefix for {runner!r}"
+    finally:
+        buildcfg._cfg.WINE = old
+
+
+@check("integration helpers isolate each region's symbols and relocations",
+       "Japanese integration repaired symbols and loaded relocations from the USA configuration")
+def _integration_regions():
+    import buildcfg
+    repair = load("autorepair")
+    ownership = load("dataown")
+    old_region, old_repo = buildcfg.REGION, repair.REPO
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            repair.REPO = root
+            for region in ("usa", "jpn"):
+                directory = os.path.join(root, "config", region, "arm9")
+                os.makedirs(directory)
+                with open(os.path.join(directory, "symbols.txt"), "w") as fh:
+                    fh.write(f"{region}_name kind:function(arm,size=0x4) addr:0x02000000\n")
+                with open(os.path.join(directory, "relocs.txt"), "w") as fh:
+                    fh.write(region + "\n")
+            for region in ("usa", "jpn"):
+                buildcfg.REGION = region
+                repair._SYMS.clear()
+                if repair._symbols("main").get("02000000") != region + "_name":
+                    return f"{region} read another region's symbol"
+                relocs = ownership.load_relocs(root)
+                if len(relocs) != 1 or next(iter(relocs.values()))[0] != region + "\n":
+                    return f"{region} loaded another region's relocations"
+    finally:
+        buildcfg.REGION, repair.REPO = old_region, old_repo
+
+
+@check("coverage reports code bytes and functions separately without substituting estimates",
+       "a function-count percentage was presented as byte coverage or a missing report as measured progress")
+def _coverage_details():
+    coverage = load("cov")
+    with tempfile.TemporaryDirectory() as root:
+        coverage.REPORT = os.path.join(root, "report.json")
+        with open(coverage.REPORT, "w") as fh:
+            json.dump({"measures": {"matched_functions": "9", "total_functions": "10",
+                                   "matched_functions_percent": 90.0,
+                                   "matched_code": "10", "total_code": "100"}}, fh)
+        details = coverage.report_details()
+        if "functions: 9/10 (90.00%)" not in details or "code bytes: 10/100 (10.00%)" not in details:
+            return "function and byte scales were conflated"
+        if coverage.from_report() != ("9", "10", 90.0):
+            return "legacy report interface changed"
+        os.remove(coverage.REPORT)
+        try:
+            coverage.report_details()
+        except OSError:
+            return None
+        return "missing report did not fail closed"
 
 
 STAMP = f"{SP}/wlog/functional_stamp.txt"

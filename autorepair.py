@@ -27,6 +27,7 @@ import os, re, glob, sys
 import buildcfg
 
 REPO = _kp.REPO
+REGION_TAG = buildcfg.REGION.upper()
 
 _SYMS = {}
 
@@ -35,10 +36,10 @@ def _symbols(module=None):
     """addr -> committed symbol name; overlays share addresses, so `module` and main win."""
     if module not in _SYMS:
         own = [] if module in (None, "main") else \
-              [f"{REPO}/config/usa/arm9/overlays/ov{module}/symbols.txt"]
+              [f"{REPO}/{buildcfg.config_dir(module)}/symbols.txt"]
         syms = {}
-        for p in own + [f"{REPO}/config/usa/arm9/symbols.txt"] + \
-                 sorted(glob.glob(f"{REPO}/config/usa/arm9/overlays/*/symbols.txt")):
+        for p in own + [f"{REPO}/{buildcfg.config_dir('main')}/symbols.txt"] + \
+                 sorted(glob.glob(f"{REPO}/{buildcfg.config_dir('main')}/overlays/*/symbols.txt")):
             try:
                 txt = open(p, encoding="utf-8", errors="ignore").read()
             except IOError:
@@ -51,8 +52,8 @@ def _symbols(module=None):
 
 def _all_symbol_names():
     names = set()
-    for p in [f"{REPO}/config/usa/arm9/symbols.txt"] + \
-             glob.glob(f"{REPO}/config/usa/arm9/overlays/*/symbols.txt"):
+    for p in [f"{REPO}/{buildcfg.config_dir('main')}/symbols.txt"] + \
+             glob.glob(f"{REPO}/{buildcfg.config_dir('main')}/overlays/*/symbols.txt"):
         try:
             names.update(re.findall(r'(?m)^(\S+) kind:function', open(p, encoding="utf-8",
                                                                       errors="ignore").read()))
@@ -72,8 +73,7 @@ def _addresses_in(name):
 
 def _code_section_for(module, addr):
     """Name of the delinks code section containing addr, or None."""
-    cfg = f"{REPO}/config/usa/arm9" if module == "main" else \
-          f"{REPO}/config/usa/arm9/overlays/ov{module}"
+    cfg = f"{REPO}/{buildcfg.config_dir(module)}"
     try:
         head = open(f"{cfg}/delinks.txt", encoding="utf-8").read().split("\n\n")[0]
     except IOError:
@@ -136,10 +136,10 @@ def repair(path, module, addr, _no_rename=False):
 
     # 2. .init section ---------------------------------------------------------
     sec = _code_section_for(module, addr)
-    if sec == "init" and "initcode" not in out and "// USA:" in out:
+    if sec == "init" and "initcode" not in out and f"// {REGION_TAG}:" in out:
         out = out.replace("#include <globaldefs.h>\n",
                           '#include <globaldefs.h>\n\n#pragma define_section initcode ".init" RX\n', 1)
-        i = out.index("// USA:")
+        i = out.index(f"// {REGION_TAG}:")
         head, tail = out[:i], out[i:]
         tail, n = re.subn(r'(?m)^(extern "C" )?(ARM|THUMB)\b',
                           lambda m: 'extern "C" __declspec(initcode) ' + m.group(2), tail, count=1)
@@ -153,9 +153,9 @@ def repair(path, module, addr, _no_rename=False):
     # config binds to `memset` and link-failed the wave. A name is curated whenever it is not the
     # raw `func_<addr>` / `func_ov<NNN>_<addr>` tag.
     if (own and not re.fullmatch(r"func_(?:ov\d+_)?[0-9a-fA-F]{8}", own)
-            and "KEEP-NAME" not in out and "// USA:" in out):
-        out = out.replace("// USA:",
-                          "// KEEP-NAME: the ROM symbol here is the mangled C++ name, not a func_ tag.\n// USA:", 1)
+            and "KEEP-NAME" not in out and f"// {REGION_TAG}:" in out):
+        out = out.replace(f"// {REGION_TAG}:",
+                          f"// KEEP-NAME: the ROM symbol here is the mangled C++ name, not a func_ tag.\n// {REGION_TAG}:", 1)
         applied.append("marked KEEP-NAME")
         # DO NOT RENAME A DEFINITION THAT IS ALREADY CORRECT. A well-written C++ source mangles to
         # the ROM symbol on its own -- `AppendListNode_x(ListHead_x*, void*)` IS
@@ -322,7 +322,7 @@ def _emits_symbol(path, want):
     cc = buildcfg.CC
     obj = os.path.join(tempfile.gettempdir(), f"autorepair_{os.getpid()}.o")
     try:
-        r = subprocess.run([cc] + _FLAGS + ["-c", path, "-o", obj],
+        r = subprocess.run(buildcfg.tool_command(cc) + _FLAGS + ["-c", path, "-o", obj],
                            capture_output=True, text=True, cwd=REPO, stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             return False, "repair did not compile"

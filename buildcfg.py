@@ -21,6 +21,10 @@ def _load():
     cwd, argv = os.getcwd(), sys.argv[:]
     os.chdir(REPO)
     sys.argv = ["configure.py", REGION]
+    if os.environ.get("DQIX_WINE"):
+        sys.argv += ["-w", os.environ["DQIX_WINE"]]
+    if os.environ.get("DQIX_COMPILER_ROOT"):
+        sys.argv += ["--compiler", os.environ["DQIX_COMPILER_ROOT"]]
     sys.path.insert(0, _TOOLS)
     try:
         import configure
@@ -55,8 +59,9 @@ _cfg = _load()
 
 MWCC_VERSION = _cfg.MWCC_VERSION
 DECOMP_ME_COMPILER = _cfg.DECOMP_ME_COMPILER
-CC = f"{REPO}/tools/mwccarm/{MWCC_VERSION}/mwccarm.exe"
-AS = f"{REPO}/tools/mwccarm/{MWCC_VERSION}/mwasmarm.exe"
+COMPILER_ROOT = os.path.normpath(os.path.join(REPO, str(_cfg.mwcc_root)))
+CC = f"{COMPILER_ROOT}/{MWCC_VERSION}/mwccarm.exe"
+AS = f"{COMPILER_ROOT}/{MWCC_VERSION}/mwasmarm.exe"
 AS_FLAGS = _cfg.AS_FLAGS.split()
 FLAGS = (_cfg.CC_FLAGS + " " + _cfg.CC_INCLUDES + " " + _mwcc_defines(_cfg)).split()
 CODEGEN_PRAGMA = re.compile(r"(?m)^[ \t]*#[ \t]*pragma[ \t]+(?!(?:define_section|section|once)\b)(\w+)")
@@ -79,7 +84,19 @@ def lcf_symbols():
 
 
 def cc_path(version):
-    return f"{REPO}/tools/mwccarm/{version}/mwccarm.exe" if version else CC
+    return f"{COMPILER_ROOT}/{version}/mwccarm.exe" if version else CC
+
+
+def tool_command(executable):
+    """Invoke a Windows tool through the same runner as configure.py on Linux.
+
+    DQIX_WINE selects the configure -w path; it is one executable path, not shell
+    syntax. Windows has an empty WINE prefix and keeps direct execution.
+    """
+    runner = _cfg.WINE
+    if runner and not os.path.isabs(runner) and ("/" in runner or "\\" in runner):
+        runner = os.path.normpath(os.path.join(REPO, runner))
+    return ([runner] if runner else []) + [executable]
 
 
 if __name__ == "__main__":

@@ -180,9 +180,9 @@ _atexit.register(_cleanup_obj)
 # perfectly good assembly, so the eighteen secure-area stubs and every SDK routine that has no C
 # form were ungateable through the one tool that decides what a match is.
 if SRC.lower().endswith(".s"):
-    _cmd=[buildcfg.AS]+buildcfg.AS_FLAGS+["-o",_OBJ,SRC]
+    _cmd=buildcfg.tool_command(buildcfg.AS)+buildcfg.AS_FLAGS+["-o",_OBJ,SRC]
 else:
-    _cmd=[cc_for(SRC)]+FLAGS+flags_for(SRC)+["-c",SRC,"-o",_OBJ]
+    _cmd=buildcfg.tool_command(cc_for(SRC))+FLAGS+flags_for(SRC)+["-c",SRC,"-o",_OBJ]
 r=subprocess.run(_cmd,capture_output=True,text=True)
 if r.returncode!=0:
     _err=(r.stdout+r.stderr).strip().replace("\t"," ")

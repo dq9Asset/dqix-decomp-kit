@@ -102,3 +102,21 @@ At stop, preserve unfinished research and evidence, release or transfer reservat
 complete the serialized update/reread checks, and report attempted, gate-matched,
 landed and upstream-merged totals separately. User pauses and budget stops apply to native
 agents as well as shell workers; stopping a shell fleet alone does not stop native agents.
+
+## Region-specific gates on Linux
+
+`DQIX_REGION=jpn` selects Japanese configuration, pristine binaries and compiler defines for
+`wgate.py` and `wdiff.py`; leaving it unset preserves USA. These tools use the same Windows-tool
+runner as `tools/configure.py`: Linux defaults to the decomp checkout's `wibo`, while Windows
+executes the compiler directly. To use configure's `-w` alternative, set `DQIX_WINE` to that
+runner's path (one executable, not a shell command). `DQIX_COMPILER_ROOT` corresponds to
+configure's `--compiler` root and defaults to `tools/mwccarm`. Toolchain and extracted ROM prerequisites
+must already exist. Candidate paths must be absolute and remain in external state.
+
+`integrate.py` and its symbol-repair/data-ownership helpers use the same region selection;
+candidates carry the matching `// JPN:` or `// USA:` address tag. The existing
+`--srcdir=/absolute/path` interface is a dry run. Normal integration still requires the
+coordinator to serialize staging and validation. This does not make the fleet, `ov_recover.py`
+or `finish_wave.sh` region-independent. Their USA-specific pipeline and USA-ROM regression
+fixtures must not be treated as Japanese validation. A gate MATCH still needs the target
+region's complete build and checksum checks before being reported as landed.

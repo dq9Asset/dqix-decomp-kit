@@ -41,6 +41,7 @@ KIT = _kp.KIT
 REPO = os.environ.get("DQIX_REPO", _kp.REPO)
 CC = buildcfg.CC
 FLAGS = list(buildcfg.FLAGS)
+REGION_TAG = buildcfg.REGION.upper()
 
 _spec = _ilu.spec_from_file_location("autorepair", f"{KIT}/autorepair.py")
 _autorepair = _ilu.module_from_spec(_spec)
@@ -56,8 +57,8 @@ os.chdir(REPO)
 
 # ---- the ONLY module-dependent values -------------------------------------------------------
 if MAIN:
-    CFG = "config/usa/arm9"
-    PRISTINE = open(f"{REPO}/extract/usa/arm9/arm9.bin", "rb").read()
+    CFG = buildcfg.config_dir(MOD)
+    PRISTINE = open(f"{REPO}/{buildcfg.pristine(MOD)}", "rb").read()
     PREFIX = "func_"
     # ALL of src/, not the module's own directory. The `// USA: <PREFIX><addr>` tag decides which
     # module a file belongs to, and main functions live outside src/Combat/Main -- src/System/
@@ -68,8 +69,8 @@ if MAIN:
     WLOG = f"{SP}/wlog/integ_main.txt"
     LBL = "main"
 else:
-    CFG = f"config/usa/arm9/overlays/ov{MOD}"
-    PRISTINE = open(f"{REPO}/extract/usa/arm9_overlays/ov{MOD}.bin", "rb").read()
+    CFG = buildcfg.config_dir(MOD)
+    PRISTINE = open(f"{REPO}/{buildcfg.pristine(MOD)}", "rb").read()
     PREFIX = f"func_ov{MOD}_"
     SRCDIR = SRCDIR or "src"        # see the note above: the tag, not the directory, selects module
     STAGE = f"{SP}/ov{MOD}_stage"
@@ -89,7 +90,7 @@ except IOError:
 
 def cc_for(path):
     v = _CC_OVR.get(os.path.basename(str(path)))
-    return f"{REPO}/tools/mwccarm/{v}/mwccarm.exe" if v else CC
+    return buildcfg.cc_path(v)
 
 
 def _read_keep_nl(p):
@@ -111,7 +112,7 @@ delinks, DEL_NL = _read_keep_nl(f"{CFG}/delinks.txt")
 # section and hard-errors when the total exceeds the section, which only bites once a delink splits
 # that module. Declaring them label(arm) makes dsd emit them size-0. Re-applied every run because
 # run_main.sh does `git checkout HEAD -- config/` immediately before calling us.
-if MAIN:
+if MAIN and buildcfg.REGION == "usa":
     _fixed = []
     for _lbl in (".L_0200c274", ".L_0200d484"):
         if f"{_lbl} kind:data(byte[256])" in symtxt:
@@ -160,7 +161,7 @@ def section_for(addr):
 # and every symbol's address, so a relocation can be checked against what the ROM really calls.
 SYMADDR = buildcfg.lcf_symbols()
 SYMSET = set(SYMADDR)
-for _p in glob.glob("config/usa/arm9/**/symbols.txt", recursive=True):
+for _p in glob.glob(f"{buildcfg.config_dir('main')}/**/symbols.txt", recursive=True):
     try:
         for _l in open(_p, encoding="utf-8", errors="ignore"):
             if " kind:" in _l:
@@ -199,9 +200,9 @@ for f in sorted(glob.glob(f"{SRCDIR}/**/*.cpp", recursive=True)
     fn = f.replace("\\", "/")
     txt = open(f, encoding="utf-8", errors="ignore").read()
     if tracked(fn) and all(a.lower() in DELINKED for a in
-                           re.findall(rf"// USA: {PREFIX}([0-9a-fA-F]{{8}})\b", txt)):
+                           re.findall(rf"// {REGION_TAG}: {PREFIX}([0-9a-fA-F]{{8}})\b", txt)):
         continue
-    tags = {a.lower() for a in re.findall(rf"// USA: {PREFIX}([0-9a-fA-F]{{8}})\b", txt)}
+    tags = {a.lower() for a in re.findall(rf"// {REGION_TAG}: {PREFIX}([0-9a-fA-F]{{8}})\b", txt)}
     for addr in tags:
         # Keyed on the ADDRESS. Keying on the func_ name hid every function whose ROM symbol is
         # curated or mangled: they were placed, gated, then reported as "0 pending files".
@@ -382,7 +383,7 @@ for f, addr in pending:
     # on the ARM|THUMB line made every allowlisted asm function NO-DEF, so it never got renamed to
     # its ROM symbol and the wave reported wired-0. At most one newline, so this still cannot walk
     # into the next function.
-    m = re.search(rf"(// USA: {raw}[^\n]*\n)(.*?)(\b(?:ARM|THUMB)\b[ \t]*\n?[ \t]*(?:asm[ \t]+)?[^\n;{{]*?\b)(\w+)(\s*\()", ftxt, re.S)
+    m = re.search(rf"(// {REGION_TAG}: {raw}[^\n]*\n)(.*?)(\b(?:ARM|THUMB)\b[ \t]*\n?[ \t]*(?:asm[ \t]+)?[^\n;{{]*?\b)(\w+)(\s*\()", ftxt, re.S)
     if not m and not keepname:
         print(f"NO-DEF {f} @0x{addr}: cannot locate def to rename — SKIP")
         fails.append((f, addr))
@@ -397,7 +398,7 @@ for f, addr in pending:
         newhdr = m.group(1) + m.group(2) + ("" if has_ec else 'extern "C" ') + m.group(3) + want + m.group(5)
         ftxt = ftxt[:m.start()] + newhdr + ftxt[m.end():]
         if sem != want:
-            ftxt = ftxt.replace(f"// USA: {raw}", f"// USA: {raw}  (semantic: {sem})", 1)
+            ftxt = ftxt.replace(f"// {REGION_TAG}: {raw}", f"// {REGION_TAG}: {raw}  (semantic: {sem})", 1)
             # A RECURSIVE CALL IS A REFERENCE TO THE NAME WE JUST RETIRED. Renaming only the
             # definition left `UpdateAndRenderDebugList_02029988(...)` inside func_02029988 on
             # main:02029988, so the file never compiled again and every sweep re-reported it.
@@ -417,7 +418,7 @@ for f, addr in pending:
             open(f, "w", encoding="utf-8", newline="\n").write(ftxt)
 
     obj = f"{SP}/_int_{LBL}_{os.getpid()}.o"
-    r = subprocess.run([cc_for(f)] + FLAGS + ["-c", cf, "-o", obj], capture_output=True, text=True)
+    r = subprocess.run(buildcfg.tool_command(cc_for(f)) + FLAGS + ["-c", cf, "-o", obj], capture_output=True, text=True)
     if r.returncode != 0:
         verdicts.append(("COMPILE", addr))
         print("COMPILE FAIL", f, (r.stdout + r.stderr)[-300:])
@@ -580,7 +581,7 @@ for f, addrs in sorted(TU.items()):
     at = len(keep) if at is None else at
 
     obj = f"{SP}/_int_{LBL}_{os.getpid()}.o"
-    r = subprocess.run([cc_for(f)] + FLAGS + ["-c", f, "-o", obj], capture_output=True, text=True)
+    r = subprocess.run(buildcfg.tool_command(cc_for(f)) + FLAGS + ["-c", f, "-o", obj], capture_output=True, text=True)
     if r.returncode != 0:
         tu_fail(f, addrs, "COMPILE", (r.stdout + r.stderr)[-300:])
         continue
