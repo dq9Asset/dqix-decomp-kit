@@ -99,8 +99,8 @@ a `colorsweep.py` rule, a repair, or a `core.md` rule citing the address, with i
 * **Do not hatch asm.** The project goal is very little asm in the final product; asm is endgame
   residue only.
 * Park it: `python $KIT/blocker.py <main|NNN> <addr> <file.cpp> <size>` records the measured residue
-  class, and a row in `worker_src/deadends.md` records every form already disproven, so the next
-  attempt does not re-buy the same dead ends.
+  class, and the function's handoff records every form already disproven, so the next attempt does
+  not re-buy the same dead ends. Only the kit's maintainers add `worker_src/deadends.md` rows.
 * If a novel transformation DID close it, record it as a lever (one tab-separated line in
   `$SP/wlog/levers.tsv`: `<addr>\t<size>\t<bytediff before>\t<transformation>`) so it can be promoted
   into the worker doc — a lever that reaches workers is worth more than the single function.

@@ -10,7 +10,7 @@ other hosts with native subagents. Read [AGENTS.md](../AGENTS.md),
 Record the authorized scope, model/effort choices, concurrency, budget limits and stop state
 in `$SP/OPEN_WORK.md`.
 
-Follow [AGENTS.md's Take instructions](../AGENTS.md#the-kit-improves-itself-update-on-every-stop-share-every-improvement)
+Follow [AGENTS.md's update instructions](../AGENTS.md#update-the-kit-on-every-stop)
 for updates and rereads. One coordinator serializes checks for agents sharing a checkout.
 Follow [rule 21](../AGENTS.md#hard-rules) before publication on either repository.
 
@@ -95,8 +95,8 @@ state under a single writer, preserving provenance and avoiding duplicate rows. 
 the coordinator's `levercheck.py` and `blockercheck.py` cannot see those workers' findings.
 Do not add incompatible fields to the kit's TSV formats; put extra provenance in sidecars.
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md) and [rule 21](../AGENTS.md#hard-rules)
-before submitting reusable findings.
+Only a recipe or a script goes to the kit as a pull request
+([AGENTS.md](../AGENTS.md#changing-the-kit), [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 At stop, preserve unfinished research and evidence, release or transfer reservations,
 complete the serialized update/reread checks, and report attempted, gate-matched,

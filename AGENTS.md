@@ -13,11 +13,9 @@ directory:
 A session that runs from another directory sets `DQIX_KIT` to the checkout; skills and workflows
 read it.
 
-## The kit improves itself: update on every stop, share every improvement
+## Update the kit on every stop
 
-Every agent using the kit both takes improvements from it and gives them back.
-
-**Take.** Update at the start of every session and every time you stop:
+Update at the start of every session and every time you stop:
 
     python kit_update.py
 
@@ -34,13 +32,22 @@ new work (exit 3) until you update. Your own unpublished kit commits are kept on
 | 2 | the fleet or an integration is running, so nothing was pulled | nothing to do: the fleet drains and updates itself (docs/FLEET.md); never pull under a running script |
 | 3 | uncommitted changes, or your unpublished commits conflict with the update | tell the user; never stash, reset or discard them yourself |
 
-**Give.** Anything you learned that another agent could reuse goes back to the kit as a pull request
-on ZevyaDev/dqix-decomp-kit in the same session: a recipe or lever (`worker_src/core.md`), a
-`colorsweep.py` rule, a repair, a tool fix, a new automation or script, a skill improvement, a
-dead end (`worker_src/deadends.md`). Commit it with its proof (rule 14), push it to your fork and
-open the pull request. A local-only improvement helps one agent once; a merged one helps every agent
-from their next stop on. [docs/IMPROVEMENT_LOOP.md](docs/IMPROVEMENT_LOOP.md) says where each kind
-belongs, [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) what a kit pull request needs.
+## Changing the kit
+
+The kit has been tested and refined over months of matching. Use it as it is. Do not change it for
+your own purposes: no local tweaks, private copies of a script, notes or rewordings. Change it only
+when you are certain a change is needed, and then only as one of the two pull requests it takes:
+
+- a recipe: a `worker_src/core.md` rule that closed a function now landed on `decomp-matching`,
+  citing its address, in a few lines
+- a script: a `colorsweep.py` rule, a repair, or a fix to a kit script or skill, with the
+  `regress.py` case that fails without it (rule 14)
+
+Nothing else is accepted: dead ends, residue notes, trial logs, docs and wording, refactors,
+comments, hardening against a fault that never happened. A miss is recorded in `$SP` (`blocker.py`
+and the function's handoff), never in `worker_src/deadends.md`. Opening no kit pull request is the
+normal outcome of a session. The kit's maintainers push to `main` directly.
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) says what an accepted pull request needs.
 
 **Pull both before every pull request** (rule 21). A pull request built on a stale kit or a stale
 decomp silently reverts what landed since you started, re-adds files for addresses someone else
@@ -129,8 +136,9 @@ start a background fleet. Keep the same reservation, gate, integration and promo
 19. A crack is not finished until it is promoted: append the `$SP/wlog/levers.tsv` row, then turn the
     lever into a `colorsweep.py` rule, a repair, or a `core.md` rule citing the address, with its
     `regress.py` proof, or decline it in `levers_declined.txt`. On a miss, record the blocker with
-    `blocker.py` and what was ruled out in `deadends.md`. The dispatcher stops claiming until this is
-    done. Then send it to the kit as a pull request in the same session.
+    `blocker.py` and what was ruled out in the function's handoff; only maintainers add `deadends.md`
+    rows. The dispatcher stops claiming until this is done. Only a recipe or a script goes to the kit
+    as a pull request ("Changing the kit" above).
     [docs/IMPROVEMENT_LOOP.md](docs/IMPROVEMENT_LOOP.md) has the whole loop.
 20. Reserve work with ONE open issue in the kit repository listing every address you are actively
     working on, never one issue per function. Edit it as the list changes. The moment you open the

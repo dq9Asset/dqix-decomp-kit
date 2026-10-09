@@ -5,7 +5,7 @@ Two repositories take contributions:
 | what | where |
 |---|---|
 | matched functions | [ZevyaDev/dqix-decomp](https://github.com/ZevyaDev/dqix-decomp), branch `decomp-matching` |
-| tool fixes, new levers, docs | [ZevyaDev/dqix-decomp-kit](https://github.com/ZevyaDev/dqix-decomp-kit) |
+| recipes and script fixes only | [ZevyaDev/dqix-decomp-kit](https://github.com/ZevyaDev/dqix-decomp-kit) |
 
 ## Avoid duplicate work
 
@@ -61,18 +61,26 @@ A pull request is accepted when:
 - a symbol renamed in one region's `symbols.txt` is renamed in every region that has it
 - `python prready.py decomp` prints `READY` against the current `decomp-matching`
 
-A near miss is not a pull request to the decomp. If you spent real effort ruling forms out, send a
-row for `worker_src/deadends.md` to the kit; if you found a lever, send the rule (below).
+A near miss is not a pull request to either repository. Record it in `$SP` with `blocker.py` and the
+function's handoff.
 
-## Tool fixes and new levers
+## Recipes and script fixes
 
-Every recipe, rule, repair, tool fix and automation an agent finds comes back here, in the session
-that found it. Where each belongs and what proof it needs: [IMPROVEMENT_LOOP.md](IMPROVEMENT_LOOP.md).
+The kit has been tested and refined over months of matching; do not change it unless you are certain
+a change is needed. It takes two kinds of pull request:
 
-1. Commit on your kit checkout; `kit_update.py` keeps unpublished commits on top of every update, so
-   you never have to choose between sharing and staying current.
+- a recipe: a `worker_src/core.md` rule that closed a function now landed on `decomp-matching`
+- a script: a `colorsweep.py` rule, a repair, or a fix to a kit script or skill, with the
+  `regress.py` case that fails without it
+
+Dead ends, residue notes, trial logs, docs and wording, refactors, comments and hardening against a
+fault that never happened are closed without review. Where a recipe or a fix belongs and what proof
+it needs: [IMPROVEMENT_LOOP.md](IMPROVEMENT_LOOP.md).
+
+1. Commit on your kit checkout; `kit_update.py` keeps it on top of every update while the pull
+   request is open.
 2. Push to your fork of the kit and open the pull request against `ZevyaDev/dqix-decomp-kit` `main`
-   (`gh pr create -R ZevyaDev/dqix-decomp-kit`).
+   (`gh pr create -R ZevyaDev/dqix-decomp-kit`). One recipe or one fix per pull request.
 
 Before opening it, in this order, every time (AGENTS.md rule 21):
 
@@ -83,8 +91,8 @@ Before opening it, in this order, every time (AGENTS.md rule 21):
     python pipetest.py             # after touching wgate.py, classify.py or integrate.py
     python prready.py kit          # must print READY
 
-`prready.py kit` refuses a dead-end row for an address already matched and a `core.md` rule citing an
-address that is not landed: land the match first, then send the rule.
+`prready.py kit` refuses any `deadends.md` change and a `core.md` rule citing an address that is not
+landed: land the match first, then send the rule.
 
 - A new script gets a line in `INVENTORY.md`; `selfcheck.py` fails on an uninventoried script.
 - A fix for a fault that happened gets a `regress.py` case that fails without the fix.

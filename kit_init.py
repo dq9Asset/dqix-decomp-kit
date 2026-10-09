@@ -26,8 +26,9 @@ STATE_DIRS = ["wlog", "wlog/gates", "wip", "staging", "handwork", "attempts", "c
               "gated", "clsbest", "quarantine", "doc_cache", "refs"]
 REQUIRED = {"capstone": "capstone", "elftools": "pyelftools"}
 OPTIONAL = {"frida": "frida (only for frida/*.py and pad/renum/)", "yaml": "pyyaml (only for frida/schedforce.py)"}
-REPO_FILES = ["tools/configure.py", "config/usa/arm9/symbols.txt", "config/usa/arm9/delinks.txt",
-              "build.ninja", "extract/usa/arm9/arm9.bin"]
+REGION = os.environ.get("DQIX_REGION", "usa")
+REPO_FILES = ["tools/configure.py", f"config/{REGION}/arm9/symbols.txt", f"config/{REGION}/arm9/delinks.txt",
+              "build.ninja", f"extract/{REGION}/arm9/arm9.bin"]
 PORTABLE_SKILLS = ["dqix-hand-match", "dqix-status", "dqix-stop", "dqix-coordinate"]
 
 

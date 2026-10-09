@@ -24,7 +24,7 @@ gets recorded and ranked. Under the fleet, `gatelog.py` keeps each address's gat
 | MATCH | one row in `$SP/wlog/levers.tsv` | `<addr>\t<size>\t<bytediff just before the fix>\t<the transformation that closed it>` |
 | miss | the measured blocker | `python $KIT/blocker.py <main\|NNN> <addr> <file.cpp> <size>` appends to `$SP/wlog/blockers.tsv` |
 | miss | what the next session on this address needs | `## HANDOFF FROM THE PREVIOUS SESSION ON THIS ADDRESS` … `<!-- END HANDOFF -->` in the function's doc; `handoff.py` carries it forward |
-| real budget spent ruling forms out | one row in `$KIT/worker_src/deadends.md` | `<addr>\t<what was tried against the real gate, and failed>` |
+| real budget spent ruling forms out | the handoff above; maintainers also add one row in `$KIT/worker_src/deadends.md` | `<addr>\t<what was tried against the real gate, and failed>` |
 | a tool misbehaved | say so plainly in the verdict | `toolgripes.py` mines verdicts for tool complaints |
 
 Name the transformation concretely: "bind the call result to its own local declared below the loaded
@@ -94,8 +94,5 @@ in `core.md` but not in the built doc has not been delivered, so grep the built 
 3. Promote the lever into the most automatic home in §3, with its proof.
 4. `python $KIT/selfcheck.py` and `python $KIT/regress.py` (`--slow` if `colorsweep.py`, `wdiff.py`
    or `wgate.py` changed).
-5. Commit the kit change, pull both checkouts, run `python $KIT/prready.py kit` until it prints
-   `READY` (AGENTS.md rule 21), and open a pull request on ZevyaDev/dqix-decomp-kit in the same
-   session (`docs/CONTRIBUTING.md`). Your own `kit_update.py` keeps the commit on top while it waits; once
-   merged, every other agent's next stop carries it. A promotion that never leaves your machine is
-   not finished.
+5. Maintainers push the kit change to `main`. Anyone else changes the kit only for a recipe or a
+   script, sent as a pull request (AGENTS.md "Changing the kit", `docs/CONTRIBUTING.md`).

@@ -23,7 +23,6 @@ SOURCE = (".c", ".cpp", ".s")
 ADDR = re.compile(r"\b(02[0-9a-fA-F]{6})\b")
 SYMBOLS = re.compile(r"^config/([^/]+)/(.+/symbols\.txt)$")
 MARKER = re.compile(r"(?m)^(<{7}|>{7})( |\r?$)")
-SECTION = re.compile(r"(?m)^\s*\.text\s+start:0x([0-9a-fA-F]+)\s+end:0x([0-9a-fA-F]+)\s+kind:code")
 
 
 def git(repo, *args):
@@ -56,11 +55,6 @@ def diff_lines(repo, tip, path, sign):
     return [l[1:] for l in out if l.startswith(sign) and not l.startswith(sign * 3)]
 
 
-def matched_everywhere(addr, modules):
-    owners = [t for t in modules if any(int(lo, 16) <= addr < int(hi, 16) for lo, hi in SECTION.findall(t))]
-    return bool(owners) and all(delinked.covers(addr, [t]) for t in owners)
-
-
 def names(text):
     return {l.split()[0] for l in text.splitlines() if l.strip()}
 
@@ -83,11 +77,10 @@ def staleness():
 
 def kit(kit_tip, decomp_tip):
     problems = []
+    if git(KIT, "diff", "--name-only", f"{kit_tip}...HEAD", "--", "worker_src/deadends.md").stdout.strip():
+        problems.append("NO DEAD ENDS: the kit takes no worker_src/deadends.md change; record the miss in $SP "
+                        "(blocker.py, the handoff) and open the pull request from a branch without it")
     matched = delinks(REPO, decomp_tip, "config/usa/arm9")
-    for line in diff_lines(KIT, kit_tip, "worker_src/deadends.md", "+"):
-        addr = line.split("\t", 1)[0].strip()
-        if ADDR.fullmatch(addr) and matched_everywhere(int(addr, 16), matched):
-            problems.append(f"STALE DEAD END {addr}: matched on {kitpaths.DECOMP_BRANCH}; drop the row")
     cited = dict.fromkeys(a.lower() for l in diff_lines(KIT, kit_tip, "worker_src/core.md", "+") for a in ADDR.findall(l))
     for addr in cited:
         if not delinked.covers(int(addr, 16), matched):

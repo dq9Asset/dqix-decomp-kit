@@ -1453,14 +1453,14 @@ def _prready():
         commit(pub_kit, {"README.md": "x\n"})
         want = {"decomp": ("KIT BEHIND", "DECOMP BEHIND", "OUTSIDE A MATCH .github/workflows/match.yml",
                            "DEAD FILE src/Dead.cpp", "HALF RENAME Foo"),
-                "kit": ("KIT BEHIND", "STALE DEAD END 02000010", "UNPROVEN CITATION 02000400")}
+                "kit": ("KIT BEHIND", "NO DEAD ENDS", "UNPROVEN CITATION 02000400")}
         for mode, needles in want.items():
             code, out = prready(mode)
             missing = [n for n in needles if n not in out]
             if code != 1 or missing:
                 return f"prready.py {mode}: exit {code}, missing {missing}: {out.strip()[-400:]}"
-            if mode == "kit" and ("02000040" in out or "CITATION 02000010" in out):
-                return f"prready.py kit flagged an open dead end or a landed citation: {out.strip()[-400:]}"
+            if mode == "kit" and "CITATION 02000010" in out:
+                return f"prready.py kit flagged a landed citation: {out.strip()[-400:]}"
         code, out = prready("--hook", stdin=json.dumps({"tool_input": {"command": "gh pr create -R ZevyaDev/dqix-decomp"}}))
         if code != 2 or "HALF RENAME" not in out:
             return f"the hook let gh pr create through on a stale decomp: exit {code}"
@@ -1988,6 +1988,44 @@ def _scaffold_region_tags():
                 return f"{region} used another region's source name"
             if f"// {region.upper()}: func_02000000" not in output:
                 return f"{region} emitted the wrong source tag"
+
+
+@check("kit initialization checks only the selected region and defaults to USA",
+       "a configured Japanese checkout failed initialization because only USA ROM paths were accepted")
+def _kit_init_region_dependencies():
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    path = os.path.join(KIT, "kit_init.py")
+    code = open(path, encoding="utf-8").read().rsplit("\nmain()", 1)[0]
+    for selection in (None, "usa", "jpn", "eur"):
+        region = selection or "usa"
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ):
+            if selection is None:
+                os.environ.pop("DQIX_REGION", None)
+            else:
+                os.environ["DQIX_REGION"] = selection
+            required = ["tools/configure.py", f"config/{region}/arm9/symbols.txt",
+                        f"config/{region}/arm9/delinks.txt", "build.ninja",
+                        f"extract/{region}/arm9/arm9.bin"]
+            for relative in required + ["compiler.exe"]:
+                filename = os.path.join(root, relative)
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                with open(filename, "wb") as fh:
+                    fh.write(b"fixture")
+            compiler = SimpleNamespace(CC=os.path.join(root, "compiler.exe"), MWCC_VERSION="fixture")
+            with patch.object(_kp, "REPO", root), patch.dict(sys.modules, {"buildcfg": compiler}):
+                namespace = {"__file__": path, "__name__": "_kit_init_region_test"}
+                exec(compile(code, path, "exec"), namespace)
+                if namespace["REPO_FILES"] != required:
+                    return f"selection {selection!r} checks another region's files"
+                with contextlib.redirect_stdout(io.StringIO()):
+                    if not namespace["check_repo"]():
+                        return f"selection {selection!r} rejected its configured fixture"
+                    os.remove(os.path.join(root, required[-1]))
+                    if namespace["check_repo"]():
+                        return f"selection {selection!r} accepted a missing selected-region ROM"
 
 
 STAMP = f"{SP}/wlog/functional_stamp.txt"

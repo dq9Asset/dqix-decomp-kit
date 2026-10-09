@@ -8,7 +8,7 @@ Exit 0: up to date, or updated (then kit_init.py has run). 1: the fetch or kit_i
 kit is unchanged or needs the FAIL lines fixed. 2: a fleet or an integration is running, so nothing
 was pulled. 3: local changes, or unpublished commits that conflict with the update, block it.
 
-Unpublished commits of your own (a lever or a fix waiting in a kit pull request) are kept on top of
+Unpublished commits of your own (a recipe or a fix waiting in a kit pull request) are kept on top of
 the update. Every changed agent instruction file is printed as `RE-READ <path>`: a running session
 loaded the old one. With --hook the exit is always 0, and a JSON block decision asks the agent to
 re-read those files before it stops. $DQIX_KIT_URL and $DQIX_KIT_BRANCH override the source
@@ -57,7 +57,7 @@ def update():
     dirty = [l[3:] for l in git("status", "--porcelain", "--untracked-files=no").stdout.splitlines() if l.strip()]
     if dirty:
         say(f"UPDATE BLOCKED: {behind} commit(s) waiting; local changes to tracked files: {', '.join(dirty)}. "
-            "Commit them (and send them as a kit pull request), or ask the user what to do with them")
+            "Ask the user what to do with them; the kit takes only a recipe or a script fix as a pull request")
         return 3, [], True
     old = git("rev-parse", "HEAD").stdout.strip()
     local = int(git("rev-list", "--count", "FETCH_HEAD..HEAD").stdout.strip() or 0)
