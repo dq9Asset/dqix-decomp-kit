@@ -59,6 +59,34 @@ def names(text):
     return {l.split()[0] for l in text.splitlines() if l.strip()}
 
 
+def existing_regional_binding(name, before, after, other_before, other_after):
+    """A raw JPN label can be corrected to an unchanged regional entity."""
+    label = re.fullmatch(r"((data|func)_(?:ov\d{3}_)?)([0-9a-f]{8})", name)
+    if not label:
+        return False
+    kind = "kind:data(" if label.group(2) == "data" else "kind:function("
+    rows = lambda text: [p for l in text.splitlines() if len(p := l.split()) >= 3]
+    old = [r for r in rows(before) if r[0] == name]
+    if (len(old) != 1 or not old[0][1].startswith(kind)
+            or (label.group(2) == "data" and old[0][2] != "addr:0x" + label.group(3))):
+        return False
+    replacement = [r for r in rows(after) if r[2] == old[0][2]]
+    if len(replacement) != 1 or replacement[0][1:] != old[0][1:]:
+        return False
+    target = replacement[0][0]
+    if ((not re.fullmatch(re.escape(label.group(1)) + r"[0-9a-f]{8}", target)
+            and not (label.group(2) == "func" and re.fullmatch(r"_Z[A-Za-z0-9_]+", target)))
+            or target in names(before)):
+        return False
+    old_other = [r for r in rows(other_before) if r[0] == name]
+    target_other = [r for r in rows(other_before) if r[0] == target]
+    return (len(old_other) == len(target_other) == 1
+            and all(r[1].startswith(kind) for r in old_other + target_other)
+            and old_other[0][2] != target_other[0][2]
+            and [r for r in rows(other_after) if r[0] == name] == old_other
+            and [r for r in rows(other_after) if r[0] == target] == target_other)
+
+
 def staleness():
     problems = []
     kit_tip = published(KIT, kitpaths.KIT_URL, kitpaths.KIT_BRANCH)
@@ -113,6 +141,10 @@ def decomp(decomp_tip):
             other = f"config/{region}/{m.group(2)}"
             if other != path:
                 for name in sorted(gone & names(show(REPO, "HEAD", other))):
+                    if m.group(1) == "jpn" and existing_regional_binding(
+                            name, show(REPO, decomp_tip, path), show(REPO, "HEAD", path),
+                            show(REPO, decomp_tip, other), show(REPO, "HEAD", other)):
+                        continue
                     problems.append(f"HALF RENAME {name}: gone from {path}, still in {other}; rename it there too")
     return problems
 

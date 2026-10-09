@@ -95,8 +95,8 @@ state under a single writer, preserving provenance and avoiding duplicate rows. 
 the coordinator's `levercheck.py` and `blockercheck.py` cannot see those workers' findings.
 Do not add incompatible fields to the kit's TSV formats; put extra provenance in sidecars.
 
-Only a recipe or a script goes to the kit as a pull request
-([AGENTS.md](../AGENTS.md#changing-the-kit), [CONTRIBUTING.md](CONTRIBUTING.md)).
+Send the kit only what [AGENTS.md](../AGENTS.md#changing-the-kit) lists
+([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 At stop, preserve unfinished research and evidence, release or transfer reservations,
 complete the serialized update/reread checks, and report attempted, gate-matched,

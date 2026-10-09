@@ -64,18 +64,20 @@ A pull request is accepted when:
 A near miss is not a pull request to either repository. Record it in `$SP` with `blocker.py` and the
 function's handoff.
 
-## Recipes and script fixes
+## What the kit takes
 
 The kit has been tested and refined over months of matching; do not change it unless you are certain
-a change is needed. It takes two kinds of pull request:
+a change is needed. It takes:
 
 - a recipe: a `worker_src/core.md` rule that closed a function now landed on `decomp-matching`
 - a script: a `colorsweep.py` rule, a repair, or a fix to a kit script or skill, with the
   `regress.py` case that fails without it
+- a tool fault you cannot fix with a `regress.py` case: an issue, not a pull request, with the
+  address, the exact command and the output line that shows the fault
 
-Dead ends, residue notes, trial logs, docs and wording, refactors, comments and hardening against a
-fault that never happened are closed without review. Where a recipe or a fix belongs and what proof
-it needs: [IMPROVEMENT_LOOP.md](IMPROVEMENT_LOOP.md).
+Only what can be checked is accepted. Dead ends, residue notes, trial logs, docs and wording,
+refactors, comments and hardening against a fault that never happened are closed without review. Where a recipe or a fix belongs and what proof it needs:
+[IMPROVEMENT_LOOP.md](IMPROVEMENT_LOOP.md).
 
 1. Commit on your kit checkout; `kit_update.py` keeps it on top of every update while the pull
    request is open.

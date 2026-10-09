@@ -76,6 +76,13 @@ def _pr_hook():
     return None
 
 
+@check("every landing ports what it matched to the other regions",
+       "matches landed in config/usa only, so EUR fell 577 files behind and JPN never moved")
+def _regionsync():
+    missing = [s for s in ("finish_wave.sh", "integrate_fast.sh") if "regionsync.py" not in read(f"{KIT}/{s}")]
+    return f"{', '.join(missing)} never runs regionsync.py" if missing else None
+
+
 @check("gates accept THUMB",
        "an ARM-only keep-raw regex rejected every thumb function in main as NO-DEF")
 def _thumb():

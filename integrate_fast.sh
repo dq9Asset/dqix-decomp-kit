@@ -184,6 +184,7 @@ if [ "$green" = "1" ]; then
   git commit -q \
       -m "Match $landed functions across $placed modules" >> "$LOG" 2>&1 || {
     echo "$(date '+%H:%M') COMMIT FAILED -- staging kept" | tee -a "$LOG"; exit 5; }
+  python "$KIT/regionsync.py" 2>&1 | tee -a "$LOG"
   _before=$(git rev-parse origin/decomp-matching 2>/dev/null)
   python "$KIT/integ_tree.py" publish >> "$LOG" 2>&1
   _after=$(git rev-parse origin/decomp-matching 2>/dev/null)

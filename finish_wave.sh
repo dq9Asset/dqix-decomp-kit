@@ -174,6 +174,7 @@ if [ "$(git rev-parse --short HEAD)" != "$H0" ]; then
       ninja check >/dev/null 2>&1
     fi
   fi
+  python "$KIT/regionsync.py"
 fi
 
 # push only if we actually gained and HEAD moved

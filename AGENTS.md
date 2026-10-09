@@ -36,17 +36,21 @@ new work (exit 3) until you update. Your own unpublished kit commits are kept on
 
 The kit has been tested and refined over months of matching. Use it as it is. Do not change it for
 your own purposes: no local tweaks, private copies of a script, notes or rewordings. Change it only
-when you are certain a change is needed, and then only as one of the two pull requests it takes:
+when you are certain a change is needed, and then only as one of these:
 
 - a recipe: a `worker_src/core.md` rule that closed a function now landed on `decomp-matching`,
   citing its address, in a few lines
 - a script: a `colorsweep.py` rule, a repair, or a fix to a kit script or skill, with the
   `regress.py` case that fails without it (rule 14)
+- a tool fault you cannot fix with a `regress.py` case: an issue in the kit repository, not a pull
+  request, giving the address, the exact command and the output line that shows the fault
 
-Nothing else is accepted: dead ends, residue notes, trial logs, docs and wording, refactors,
-comments, hardening against a fault that never happened. A miss is recorded in `$SP` (`blocker.py`
-and the function's handoff), never in `worker_src/deadends.md`. Opening no kit pull request is the
-normal outcome of a session. The kit's maintainers push to `main` directly.
+Each of these can be checked: a landed address proves a recipe, a failing test proves a fix, and a
+maintainer reproduces a fault before acting on it. Nothing that cannot be checked is accepted: dead ends, residue notes, trial logs, docs and wording, refactors, comments,
+hardening against a fault that never happened. A dead end is a claim that nothing worked, and every
+later worker on that address is handed it as settled. Record a miss in `$SP` with `blocker.py` and
+the function's handoff. Opening no kit pull request is the normal outcome of a session. The kit's
+maintainers push to `main` directly.
 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) says what an accepted pull request needs.
 
 **Pull both before every pull request** (rule 21). A pull request built on a stale kit or a stale
@@ -137,8 +141,8 @@ start a background fleet. Keep the same reservation, gate, integration and promo
     lever into a `colorsweep.py` rule, a repair, or a `core.md` rule citing the address, with its
     `regress.py` proof, or decline it in `levers_declined.txt`. On a miss, record the blocker with
     `blocker.py` and what was ruled out in the function's handoff; only maintainers add `deadends.md`
-    rows. The dispatcher stops claiming until this is done. Only a recipe or a script goes to the kit
-    as a pull request ("Changing the kit" above).
+    rows. The dispatcher stops claiming until this is done. What may go to the kit is listed in
+    "Changing the kit" above.
     [docs/IMPROVEMENT_LOOP.md](docs/IMPROVEMENT_LOOP.md) has the whole loop.
 20. Reserve work with ONE open issue in the kit repository listing every address you are actively
     working on, never one issue per function. Edit it as the list changes. The moment you open the

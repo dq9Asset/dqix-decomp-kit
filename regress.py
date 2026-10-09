@@ -1424,8 +1424,13 @@ def _prready():
             ".github/workflows/match.yml": "on: push\n",
             "config/usa/arm9/delinks.txt": "    .text       start:0x02000000 end:0x02001000 kind:code align:32\n\n"
                                            "src/A.cpp:\n    complete\n    .text start:0x02000010 end:0x02000020\n",
-            "config/usa/arm9/symbols.txt": "Foo kind:function(arm,size=0x10) addr:0x02000010\n",
-            "config/eur/arm9/symbols.txt": "Foo kind:function(arm,size=0x10) addr:0x02000010\n",
+            "config/usa/arm9/symbols.txt": "Foo kind:function(arm,size=0x10) addr:0x02000010\n"
+                "data_020e7e30 kind:data(any) addr:0x020e7e30\n"
+                "data_020e74ec kind:data(any) addr:0x020e74ec\n",
+            "config/eur/arm9/symbols.txt": "Foo kind:function(arm,size=0x10) addr:0x02000010\n"
+                "data_020e7e30 kind:data(any) addr:0x020e7e40\n"
+                "data_020e74ec kind:data(any) addr:0x020e74fc\n",
+            "config/jpn/arm9/symbols.txt": "data_020e7e30 kind:data(any) addr:0x020e7e30\n",
             "src/A.cpp": "void Foo() {}\n"})
         commit(pub_kit, {n: open(f"{KIT}/{n}", encoding="utf-8").read()
                          for n in ("prready.py", "delinked.py", "kitpaths.py")}
@@ -1444,6 +1449,34 @@ def _prready():
             code, out = prready(mode)
             if code != 0:
                 return f"a current checkout was refused by prready.py {mode}: {out.strip()[-300:]}"
+        # Real fault: JPN's address-derived table name collided with an unrelated
+        # USA string. Porting it to the existing USA table name is not a global rename.
+        commit(decomp, {"config/jpn/arm9/symbols.txt":
+                        "data_020e74ec kind:data(any) addr:0x020e7e30\n"})
+        code, out = prready("decomp")
+        if code != 0:
+            return f"canonical JPN data rebinding was refused: {out.strip()[-500:]}"
+        for replacement in (
+                "NewName kind:data(any) addr:0x020e7e30\n",
+                "data_020e74ec kind:data(any) addr:0x020e7e34\n",
+                "data_020e74ec kind:function(arm,size=4) addr:0x020e7e30\n",
+                "data_020e74ec kind:data(any) addr:0x020e7e30 align:4\n",
+                "data_020e74ec kind:data(any) addr:0x020e7e30\n"
+                "Alias kind:data(any) addr:0x020e7e30\n", ""):
+            commit(decomp, {"config/jpn/arm9/symbols.txt": replacement})
+            code, out = prready("decomp")
+            if code != 1 or "HALF RENAME data_020e7e30" not in out:
+                return f"unproven JPN change passed: {replacement!r}: {out.strip()[-300:]}"
+        commit(decomp, {"config/jpn/arm9/symbols.txt":
+                        "data_020e74ec kind:data(any) addr:0x020e7e30\n"})
+        original_usa = open(f"{decomp}/config/usa/arm9/symbols.txt", encoding="utf-8").read()
+        commit(decomp, {"config/usa/arm9/symbols.txt":
+                        "Foo kind:function(arm,size=0x10) addr:0x02000010\n"
+                        "data_020e74ec kind:data(any) addr:0x020e7e30\n"})
+        code, out = prready("decomp")
+        if code != 1 or "HALF RENAME data_020e7e30" not in out:
+            return f"the JPN-only exception changed USA validation: {out.strip()[-300:]}"
+        commit(decomp, {"config/usa/arm9/symbols.txt": original_usa})
         commit(decomp, {".github/workflows/match.yml": "on: pull_request\n",
                         "src/Dead.cpp": "void Dead() {}\n",
                         "config/usa/arm9/symbols.txt": "Bar kind:function(arm,size=0x10) addr:0x02000010\n"})
@@ -1467,6 +1500,119 @@ def _prready():
         code, out = prready("--hook", stdin=json.dumps({"tool_input": {"command": "git status"}}))
         if code != 0:
             return f"the hook blocked a command that opens no pull request: exit {code} {out.strip()[-200:]}"
+    return None
+
+
+@check("prready distinguishes a canonical JPN function binding from a global rename",
+       "JPN02033c3c was mislabeled func_020341e0 although its extra check matches USA02034104; "
+       "correcting that binding was rejected while both distinct USA functions stayed unchanged")
+def _prready_function_binding():
+    import ast
+    from types import SimpleNamespace
+    src = open(f"{KIT}/prready.py", encoding="utf-8").read()
+    functions = {n.name: ast.get_source_segment(src, n) for n in ast.parse(src).body
+                 if isinstance(n, ast.FunctionDef)}
+    ns = {"re": re}
+    exec(functions["names"] + "\n" + functions["existing_regional_binding"], ns)
+    classify = ns["existing_regional_binding"]
+    old = ("func_020341e0 "
+           "kind:function(arm,size=0xcc) addr:0x02033c3c\n")
+    new = ("func_02034104 "
+           "kind:function(arm,size=0xcc) addr:0x02033c3c\n")
+    other = ("func_020341e0 "
+             "kind:function(arm,size=0xcc) addr:0x020341e0\n"
+             "func_02034104 "
+             "kind:function(arm,size=0xdc) addr:0x02034104\n")
+    name = "func_020341e0"
+    if not classify(name, old, new, other, other):
+        return "the proven same-address JPN raw function correction was refused"
+    overlay = lambda s: s.replace("func_", "func_ov031_")
+    if not classify(overlay(name), overlay(old), overlay(new), overlay(other), overlay(other)):
+        return "a same-module raw overlay correction was refused"
+    for replacement in (
+            new.replace("func_02034104", "CuratedName"),
+            new.replace("func_02034104", "func_02034108"),
+            new.replace("func_02034104", "func_ov031_02034104"),
+            new.replace("addr:0x02033c3c", "addr:0x02033c40"),
+            new.replace("size=0xcc", "size=0xdc"),
+            new.replace("arm,", "thumb,"),
+            new.replace("kind:function(arm,size=0xcc)", "kind:data(any)"),
+            new.rstrip() + " align:4\n", new + new,
+            new + "Alias kind:function(arm,size=0xcc) addr:0x02033c3c\n", ""):
+        if classify(name, old, replacement, other, other):
+            return f"an unproven function correction passed: {replacement!r}"
+    if classify("CuratedOld", old.replace(name, "CuratedOld"), new, other, other):
+        return "a curated old name was exempted"
+    if classify(name, old + new.replace("02033c3c", "02033000"), new, other, other):
+        return "a target already present in JPN was exempted"
+    for changed in ("", other.replace("func_020341e0", "Renamed"),
+                    other.replace("addr:0x02034104", "addr:0x02034108"),
+                    other.replace("size=0xdc", "size=0xd8"), other + other):
+        if classify(name, old, new, other, changed):
+            return "a changed or ambiguous other-region entity was exempted"
+    if classify(name, old, new, other.splitlines(True)[0], other.splitlines(True)[0]):
+        return "a target missing from the other-region baseline was exempted"
+    if classify(name, old, new, other.replace("addr:0x02034104", "addr:0x020341e0"),
+                other.replace("addr:0x02034104", "addr:0x020341e0")):
+        return "two names at one other-region address were exempted"
+    # Exercise the actual JPN-only guard, not just the classifier in isolation.
+    for region in ("jpn", "usa", "eur"):
+        path = f"config/{region}/arm9/symbols.txt"
+        def fake_git(repo, *args):
+            if args[0] == "ls-tree":
+                return SimpleNamespace(stdout="config/usa\nconfig/eur\nconfig/jpn\n")
+            return SimpleNamespace(stdout="" if "--diff-filter=A" in args else path + "\n")
+        def fake_show(repo, rev, filename):
+            return (old if rev == "tip" else new) if filename == path else other
+        ns.update(REPO="fixture", MATCH_PATHS=("src/", "include/", "config/"),
+                  SOURCE=(".c", ".cpp", ".s"), SYMBOLS=re.compile(r"^config/([^/]+)/(.+/symbols\.txt)$"),
+                  MARKER=re.compile(r"(?m)^(<{7}|>{7})( |\r?$)"), git=fake_git, show=fake_show,
+                  delinks=lambda *args: [], diff_lines=lambda *args: old.splitlines())
+        exec(functions["decomp"], ns)
+        problems = ns["decomp"]("tip")
+        if (region == "jpn" and problems) or (region != "jpn" and len(problems) != 2):
+            return f"region guard changed for {region}: {problems}"
+    return None
+
+
+@check("prready accepts an existing mangled JPN function binding",
+       "an address-derived JPN label can belong to an unchanged named USA/EUR function")
+def _prready_mangled_function_binding():
+    import ast
+    src = open(f"{KIT}/prready.py", encoding="utf-8").read()
+    parts = {n.name: ast.get_source_segment(src, n) for n in ast.parse(src).body
+             if isinstance(n, ast.FunctionDef)}
+    ns = {"re": re}
+    exec(parts["names"] + "\n" + parts["existing_regional_binding"], ns)
+    classify = ns["existing_regional_binding"]
+    name = "func_" + "020e4864"
+    target = "_Z23SetEntryEnabled020e2cc4P13Entry020e2cc4i"
+    old = name + " kind:function(arm,size=0x60) addr:0x020e4864\n"
+    new = target + " kind:function(arm,size=0x60) addr:0x020e4864\n"
+    other = (name + " kind:function(arm,size=0xf4) addr:0x020e4864\n"
+             + target + " kind:function(arm,size=0x60) addr:0x020e2cc4\n")
+    if not classify(name, old, new, other, other):
+        return "a same-address JPN binding to an unchanged mangled entity was refused"
+    for replacement in (new.replace(target, "_Z14UnknownTargetv"),
+                        new.replace(target, "UnprovenCuratedName"),
+                        new.replace("addr:0x020e4864", "addr:0x020e4868"),
+                        new.replace("size=0x60", "size=0x64"),
+                        new.replace("arm,", "thumb,"), new + new):
+        if classify(name, old, replacement, other, other):
+            return "an unproven mangled correction passed"
+    if classify(name, old + new.replace("020e4864", "020e4880"), new, other, other):
+        return "a target already bound elsewhere in JPN was exempted"
+    for changed in ("", other.replace(target, "ChangedTarget"),
+                    other.replace("addr:0x020e2cc4", "addr:0x020e2cc8"), other + other):
+        if classify(name, old, new, other, changed):
+            return "a changed or ambiguous other-region entity was exempted"
+    if classify(name, old, new, other.splitlines(True)[0], other.splitlines(True)[0]):
+        return "a missing other-region target was exempted"
+    data = lambda s: s.replace("func_", "data_").replace(
+        "kind:function(arm,size=0x60)", "kind:data(any)").replace(
+        "kind:function(arm,size=0xf4)", "kind:data(any)")
+    if classify(data(name), data(old), data(new), data(other), data(other)):
+        return "the mangled-function exception leaked into data classification"
     return None
 
 

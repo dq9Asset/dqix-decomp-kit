@@ -94,5 +94,5 @@ in `core.md` but not in the built doc has not been delivered, so grep the built 
 3. Promote the lever into the most automatic home in §3, with its proof.
 4. `python $KIT/selfcheck.py` and `python $KIT/regress.py` (`--slow` if `colorsweep.py`, `wdiff.py`
    or `wgate.py` changed).
-5. Maintainers push the kit change to `main`. Anyone else changes the kit only for a recipe or a
-   script, sent as a pull request (AGENTS.md "Changing the kit", `docs/CONTRIBUTING.md`).
+5. Maintainers push the kit change to `main`. Anyone else sends only what AGENTS.md "Changing the
+   kit" lists (`docs/CONTRIBUTING.md`).
