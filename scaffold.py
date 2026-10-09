@@ -3,14 +3,14 @@
 has to write the logic.
 
 Measured: an unmatched overlay function averages 18.3 callee/data references. `relocs.txt` already
-records the exact target address of every one, and symbols.txt (or the committed source's `// USA:`
+records the exact target address of every one, and symbols.txt (or the committed source's regional
 tag) gives its real name. Workers currently grep that out one reference at a time — and guessing wrong
 produces UNDEF-SYM / RELOC-WRONG, the two gate errors that force a full retry.
 
 None of that needs a model. This emits:
   * an `extern "C"` declaration for every call target, under its CORRECT current name
   * an `extern` declaration for every pool data reference
-  * the USA tag, the right ARM/THUMB macro, and a stub with the right symbol name
+  * the region tag, the right ARM/THUMB macro, and a stub with the right symbol name
   * the target disassembly inline, with call sites annotated by callee name
 
 Arg counts and types are NOT derivable and are left as TODO — that is the worker's job.
@@ -44,12 +44,13 @@ for p in glob.glob(f"{REPO}/{buildcfg.config_dir('main')}/**/symbols.txt", recur
     BOUNDS[tag] = sorted(set(table) | set(ends))
 
 CNAME = {}
+REGION_TAG = buildcfg.REGION.upper()
 try:
-    out = subprocess.run(["git", "grep", "-h", "-A2", "-E", r"// USA: func_(ov[0-9]+_)?[0-9a-fA-F]{8}"],
+    out = subprocess.run(["git", "grep", "-h", "-A2", "-E", rf"// {REGION_TAG}: func_(ov[0-9]+_)?[0-9a-fA-F]{{8}}"],
                          cwd=REPO, capture_output=True, text=True).stdout
     cur = None
     for l in out.split('\n'):
-        m = re.search(r'// USA: func_(?:ov(\d+)_)?([0-9a-fA-F]{8})', l)
+        m = re.search(rf'// {REGION_TAG}: func_(?:ov(\d+)_)?([0-9a-fA-F]{{8}})', l)
         if m:
             cur = (f"overlay({int(m.group(1))})" if m.group(1) else "main", int(m.group(2), 16)); continue
         if cur is not None:
@@ -156,7 +157,7 @@ def scaffold(mod, addr):
         L.append("//   2. Keep this exact name and the `// KEEP-NAME` marker below. Renaming it to")
         L.append("//      func_<addr> deletes a symbol the build requires and reds the WHOLE wave.")
         L.append("// KEEP-NAME")
-    L.append(f"// USA: {pfx}{addr}")
+    L.append(f"// {REGION_TAG}: {pfx}{addr}")
     L.append(f'extern "C" {mac} int {symname if not symname.startswith("func_") else "TODO_Name_" + addr}(/* TODO args */) {{')
     L.append("    /* TODO */")
     L.append("}")

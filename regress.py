@@ -1948,6 +1948,48 @@ def _coverage_details():
         return "missing report did not fail closed"
 
 
+@check("scaffolds isolate USA/JPN/EUR source tags and preserve JP callee 02081130",
+       "a USA source name at 02081130 replaced an unrelated Japanese callee and poisoned the scaffold")
+def _scaffold_region_tags():
+    import buildcfg
+    import subprocess
+    from unittest.mock import patch
+    # Load the real scanner and generator without running the command-line dispatcher.
+    path = os.path.join(KIT, "scaffold.py")
+    code = open(path, encoding="utf-8").read().split('\nif sys.argv[1] == "--all":', 1)[0]
+    with tempfile.TemporaryDirectory() as root:
+        subprocess.run(["git", "init", "-q", root], check=True, capture_output=True)
+        for region in ("usa", "jpn", "eur"):
+            directory = os.path.join(root, "config", region, "arm9")
+            os.makedirs(directory)
+            with open(os.path.join(directory, "symbols.txt"), "w") as fh:
+                for address in ("02000000", "02081130", "02090000"):
+                    symbol = "func_" + address
+                    fh.write(f"{symbol} kind:function(arm,size=0x8) addr:0x{address}\n")
+            with open(os.path.join(directory, "relocs.txt"), "w") as fh:
+                fh.write("from:0x02000000 kind:call to:0x02081130 module:main\n"
+                         "from:0x02000004 kind:call to:0x02090000 module:main\n")
+            with open(os.path.join(root, region + ".cpp"), "w") as fh:
+                fh.write(f"// {region.upper()}: func_02090000\nARM void {region}_only() {{}}\n")
+                if region == "usa":
+                    fh.write("// USA: func_02081130\nARM void SetOrClearEntryFlag0x102081130() {}\n")
+        subprocess.run(["git", "-C", root, "add", "."], check=True, capture_output=True)
+        for region in ("usa", "jpn", "eur"):
+            with patch.object(buildcfg, "REGION", region), patch.object(_kp, "REPO", root):
+                namespace = {"__file__": path, "__name__": "_scaffold_region_test"}
+                exec(compile(code, path, "exec"), namespace)
+                output, refs = namespace["scaffold"]("main", "02000000")
+            wanted = "SetOrClearEntryFlag0x102081130" if region == "usa" else "func_02081130"
+            if f'extern "C" void {wanted}();' not in output or refs != 2:
+                return f"{region} resolved concrete callee 02081130 incorrectly"
+            if f'extern "C" void {region}_only();' not in output:
+                return f"{region} lost its source-tag name lookup"
+            if any(f'void {other}_only();' in output for other in ("usa", "jpn", "eur") if other != region):
+                return f"{region} used another region's source name"
+            if f"// {region.upper()}: func_02000000" not in output:
+                return f"{region} emitted the wrong source tag"
+
+
 STAMP = f"{SP}/wlog/functional_stamp.txt"
 
 
