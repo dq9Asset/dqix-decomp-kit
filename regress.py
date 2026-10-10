@@ -738,6 +738,52 @@ def _r56():
     return None
 
 
+@check("the body-scoped rules read a function whose opening brace is on its own line",
+       "_r46_body only accepted `ARM f(...) {` on one line, so r51 never offered `short x` on the "
+       "Allman-style ov023:021ddc98 and every body-scoped rule skipped 162 of 710 parked sources")
+def _allman_body():
+    C = load("colorsweep")
+    text = ('// USA: func_f\n'
+            'extern "C" ARM int f(short* p)\n'
+            '{\n'
+            '    int x;\n'
+            '    x = p[0];\n'
+            '    return x + p[1];\n'
+            '}\n')
+    got = dict(C.r51_short_spill(text))
+    if "    short x;\n" not in got.get("shortspill:x@3", ""):
+        return "r51 offered nothing on a brace-below function: %s" % sorted(got)
+    return None
+
+
+@check("r63 splits `v = e OP k;` into `v = e; v OP= k;` and leaves unsafe forms alone",
+       "A single-definition loop bound is forward-substituted; `last = shown; last -= 1;` closed "
+       "SCHED 13 (ov023:021db634)")
+def _r63():
+    C = load("colorsweep")
+    text = ('// USA: func_f\n'
+            'extern "C" ARM void f(unsigned char shown, int* a, int b)\n'
+            '{\n'
+            '    int last;\n'
+            '    int n = b * 4 + 1;\n'
+            '    last = shown - 1;\n'
+            '    b = a[0] + b;\n'
+            '    b = b >> 2;\n'
+            '    b = a[1] + 1 < b;\n'
+            '    b = g(b - 1);\n'
+            '    a[last] = n;\n'
+            '}\n')
+    got = dict(C.r63_split_assign_op(text))
+    want = {"splitop:last@5": "    last = shown;\n    last -= 1;\n",
+            "splitop:n@4": "    int n = b * 4;\n    n += 1;\n"}
+    for label, needle in want.items():
+        if needle not in got.get(label, ""):
+            return "r63 did not emit %r for %s: %s" % (needle, label, sorted(got))
+    if set(got) != set(want):
+        return "r63 split an unsafe form: %s" % sorted(set(got) - set(want))
+    return None
+
+
 @check("r62 aligns one word-aligned extern data object, preferring an array, never a function",
        "An alignment-qualified object switches mwcc's IR optimizer off for the function (ov015:0218cc24)")
 def _r62():
@@ -800,6 +846,17 @@ def _r60():
         return "r60 did not const the read-only table"
     if "constextern:data_rw" in got:
         return "r60 consted a table that is written"
+    ptrs = ('extern Cmd* data_q[9];\n'
+            'extern "C" Cmd* data_w[2];\n'
+            '// USA: func_f\n'
+            'extern "C" ARM Cmd* f(int i) {\n'
+            '    data_w[i] = 0;\n'
+            '    return data_q[i];\n}\n')
+    got = dict(C.r60_const_extern_table(ptrs))
+    if "extern Cmd* const data_q[9];" not in got.get("constextern:data_q", ""):
+        return "r60 did not const the read-only pointer table (main:020d22f4): %s" % sorted(got)
+    if "constextern:data_w" in got:
+        return "r60 consted a pointer table that is written"
     return None
 
 
@@ -1343,6 +1400,84 @@ def _dataown_replay():
     return None
 
 
+@check("the data planner never writes a compiler-local name into another source",
+       "landing main:020c6d7c renamed bss data_021112dc to its function-scope static isInitialized$13 and "
+       "rewrote a dead `extern int data_021112dc;` in another source to `extern \"C\" int "
+       "isInitialized$13;`, which mwcc rejects")
+def _dataown_local_name():
+    import subprocess
+    import buildcfg
+    import dataown
+    repo = buildcfg.REPO
+    cfg = "config/usa/arm9"
+    landed = "c1328b61"
+    srcpath = "src/Combat/Main/InitializeGamecardBusOwnership.cpp"
+
+    def show(rev, path):
+        r = subprocess.run(["git", "show", "%s:%s" % (rev, path)], cwd=repo, capture_output=True)
+        return r.stdout.decode("utf-8").replace("\r\n", "\n")
+
+    elf = _compile_elf(show(landed, srcpath), repo)
+    if isinstance(elf, str):
+        return elf
+    pristine = open(os.path.join(repo, "extract/usa/arm9/arm9.bin"), "rb").read()
+    index = next(i for i, s in enumerate(elf.iter_sections()) if s.name == ".text")
+    with tempfile.TemporaryDirectory() as tree:
+        os.makedirs(os.path.join(tree, "src"))
+        with open(os.path.join(tree, "src", "Other.cpp"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("extern int data_021112dc;\nvoid Other() {}\n")
+        subprocess.run(["git", "init", "-q"], cwd=tree, capture_output=True)
+        subprocess.run(["git", "add", "src"], cwd=tree, capture_output=True)
+        own = os.path.normcase(os.path.abspath(os.path.join(tree, cfg, "relocs.txt")))
+        relocs = {own: (show(landed + "^", cfg + "/relocs.txt"), "\n")}
+        p = dataown.plan(elf, index, 0xcc, 0x020c6d7c, pristine, 0x02000000, "main", cfg, tree, srcpath, {},
+                         show(landed + "^", cfg + "/delinks.txt"), show(landed + "^", cfg + "/symbols.txt"),
+                         relocs)
+    if not isinstance(p, dict):
+        return "the planner refused the landed source: %s" % p
+    if "isInitialized$13 kind:bss addr:0x021112dc local" not in p["symtxt"]:
+        return "symbols.txt does not carry the local static"
+    written = [path for path, (text, _nl) in p["src_edits"].items() if "isInitialized$13" in text]
+    if written:
+        return "a compiler-local name was written into %s" % written
+    return None
+
+
+@check("cf_multi runs on the current colorforce JS and a move reaches the colouring order",
+       "cf_multi patched JS anchors colorforce no longer has and died on its own assert, so the "
+       "`moves`/`choices` probe core.md documents could not run")
+def _cf_multi_moves():
+    import shutil
+    import subprocess
+    tmp = tempfile.mkdtemp()
+    src = os.path.join(tmp, "probe.cpp")
+    shutil.copy(os.path.join(KIT, "regress_fixtures", "DispatchSumOrCopyHalfwords_0218ee38.cpp"), src)
+
+    def trace(cfg):
+        r = subprocess.run([sys.executable, f"{KIT}/pad/cf_multi.py", src, "ov015", "0218ee38", "0xb8", "0xb8",
+                            json.dumps(cfg)], capture_output=True, text=True, cwd=KIT)
+        if r.returncode:
+            return None, (r.stdout + r.stderr).strip()[-300:]
+        with open(os.path.join(tmp, "probe.cfm", "trace.json")) as fh:
+            return json.load(fh)[-1]["nodes"], None
+
+    try:
+        base, err = trace({})
+        if err:
+            return "cf_multi failed: %s" % err
+        order = [n[0] for n in base]
+        if len(order) < 2:
+            return "the last colouring call has %d node(s)" % len(order)
+        moved, err = trace({"moves": [[order[-1], 0]]})
+        if err:
+            return "cf_multi failed with a move: %s" % err
+        if moved[0][0] != order[-1]:
+            return "node %d was not moved to the front: %s" % (order[-1], [n[0] for n in moved][:6])
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 @check("a pool word's addend is read from r_addend, not from the zero mwcc writes in place",
        "mwcc emits RELA relocations with a zero in-place word; integrate.py, wgate.py and classify.py "
        "took the addend from that word, so a pool reference to symbol+N resolved to the bare symbol and "
@@ -1369,6 +1504,33 @@ def _rela_addend():
     return None
 
 
+@check("the NitroSDK stack-size symbols are known linker symbols with the ROM's pool values",
+       "main:020c6d48, 020c745c and 020c8548 load SDK_IRQ_STACKSIZE and SDK_SYS_STACKSIZE from their "
+       "literal pools; lcf_symbols() did not list them, so wgate called every candidate UNDEF-SYM and "
+       "integrate.py skipped it")
+def _sdk_lcf_symbols():
+    import buildcfg
+    elf = _compile_elf('extern "C" void SDK_IRQ_STACKSIZE();\nextern "C" void SDK_SYS_STACKSIZE();\n'
+                       'extern "C" long F(int a) { return a ? (long)SDK_IRQ_STACKSIZE : (long)SDK_SYS_STACKSIZE; }\n',
+                       buildcfg.REPO)
+    if isinstance(elf, str):
+        return elf
+    symtab = elf.get_section_by_name(".symtab")
+    referenced = {symtab.get_symbol(rr["r_info_sym"]) for sec in elf.iter_sections()
+                  if hasattr(sec, "iter_relocations") for rr in sec.iter_relocations()}
+    referenced = {s.name for s in referenced if s["st_shndx"] == "SHN_UNDEF" and s.name}
+    known = buildcfg.lcf_symbols()
+    if referenced - set(known):
+        return "not linker symbols: %s" % sorted(referenced - set(known))
+    pools = {"usa": (0x020c6d78, 0x020c7574), "eur": (0x020c6d88, 0x020c7584), "jpn": (0x020c8844, 0x020c9040)}
+    rom = open(f"{buildcfg.REPO}/{buildcfg.pristine('main')}", "rb").read()
+    for name, addr in zip(("SDK_IRQ_STACKSIZE", "SDK_SYS_STACKSIZE"), pools[buildcfg.REGION]):
+        word = int.from_bytes(rom[addr - 0x02000000:addr - 0x02000000 + 4], "little")
+        if known[name] != word:
+            return "%s = %#x, the ROM's pool word at %08x is %#x" % (name, known[name], addr, word)
+    return None
+
+
 @check("ov_recover gathers a staged file tagged with its bound name instead of skipping it",
        "gather() located a file only by a `// USA: func_<addr>` tag, so a port tagged with its curated "
        "name (`// USA: _Z22OnDMAOrTimerCompletioni`) passed wgate and was silently left out of every "
@@ -1392,6 +1554,45 @@ def _retag_bound_name():
         return "an extern \"C\" definition was retagged as %r" % out.split("\n")[0]
     if ns["retag"]("// USA: Nope\nARM void Nope()\n", "z.cpp") != "// USA: Nope\nARM void Nope()\n":
         return "an unknown name was rewritten"
+    return None
+
+
+def _scaffold(module, addr):
+    import subprocess
+    r = subprocess.run([sys.executable, f"{KIT}/scaffold.py", module, addr], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", cwd=KIT)
+    return r.stdout + r.stderr
+
+
+@check("scaffold names a callee by its symbols.txt name, never by a scratch source's definition",
+       "a tracked scratch file defining `Func020c976c` under `// USA: func_020c976c` made main:020d22f4's "
+       "scaffold declare a callee that does not exist")
+def _scaffold_symbols_name():
+    out = _scaffold("main", "020d22f4")
+    if 'extern "C" void func_020c976c();' not in out or "Func020c976c" in out:
+        return "callee at 0x020c976c is not declared as func_020c976c: %s" % out[-300:]
+    return None
+
+
+@check("scaffold declares a mangled callee as C++, never extern \"C\"",
+       "main:020c8bd4's scaffold declared `extern \"C\" void EnableSystemControlBit0();` for the ROM's "
+       "_Z23EnableSystemControlBit0v, which links to a symbol that does not exist")
+def _scaffold_mangled_callee():
+    out = _scaffold("main", "020c8bd4")
+    if "void EnableSystemControlBit0();" not in out:
+        return "no C++ declaration of EnableSystemControlBit0: %s" % out[-300:]
+    if re.search(r'(?m)^extern "C" void (?:_Z|EnableSystemControlBit0)', out):
+        return "a mangled callee was declared extern \"C\""
+    return None
+
+
+@check("scaffold maps a bl that relocs.txt lacks",
+       "relocs.txt has no entry for main:020c8bd4's bl to DisableSystemControlBit0 at +0x50, so the call "
+       "map left it out")
+def _scaffold_rom_call():
+    out = _scaffold("main", "020c8bd4")
+    if not re.search(r"(?m)^\s+\+0x50\s+DisableSystemControlBit0$", out):
+        return "the call map has no +0x50 DisableSystemControlBit0: %s" % out[-300:]
     return None
 
 
@@ -1690,6 +1891,15 @@ FUNCTIONAL = [
      "volalias: reading a pointer's fields through a `const volatile` alias forbids mwcc reordering "
      "two loads against each other. The alias is on a PARAMETER, which the first cut of the rule "
      "could not see -- so it could not reproduce the crack it was derived from"),
+    ("023", "021db634", "regress_fixtures/SplitLoopBound_021db634.cpp", "MATCH", 60,
+     "splitop: `last = shown; last -= 1;` gives a single-definition loop bound a second definition, "
+     "so it is not forward-substituted and i2 = 0 schedules first"),
+    ("023", "021ddc98", "regress_fixtures/ShortCanvasX_021ddc98.cpp", "MATCH", 60,
+     "shortspill on a brace-below function: `short x` loads with ldrsh into the product temp; the "
+     "prior already loads x before y, since neither step alone moves the score"),
+    ("main", "020d22f4", "regress_fixtures/ConstQueueTable_020d22f4.cpp", "MATCH", 60,
+     "constextern on a pointer table: `T* const tbl[9]` takes the indexed load out of the worst-case "
+     "alias set, so it is no longer ordered before the store to the read index"),
 ]
 
 
@@ -2094,13 +2304,13 @@ def _coverage_details():
         return "missing report did not fail closed"
 
 
-@check("scaffolds isolate USA/JPN/EUR source tags and preserve JP callee 02081130",
+@check("scaffolds use regional symbols and preserve JP callee 02081130 despite source tags",
        "a USA source name at 02081130 replaced an unrelated Japanese callee and poisoned the scaffold")
 def _scaffold_region_tags():
     import buildcfg
     import subprocess
     from unittest.mock import patch
-    # Load the real scanner and generator without running the command-line dispatcher.
+    # Load the real generator without running the command-line dispatcher.
     path = os.path.join(KIT, "scaffold.py")
     code = open(path, encoding="utf-8").read().split('\nif sys.argv[1] == "--all":', 1)[0]
     with tempfile.TemporaryDirectory() as root:
@@ -2111,14 +2321,22 @@ def _scaffold_region_tags():
             with open(os.path.join(directory, "symbols.txt"), "w") as fh:
                 for address in ("02000000", "02081130", "02090000"):
                     symbol = "func_" + address
+                    if address == "02081130" and region == "usa":
+                        symbol = "SetOrClearEntryFlag0x102081130"
+                    elif address == "02090000":
+                        symbol = region + "_only"
                     fh.write(f"{symbol} kind:function(arm,size=0x8) addr:0x{address}\n")
             with open(os.path.join(directory, "relocs.txt"), "w") as fh:
                 fh.write("from:0x02000000 kind:call to:0x02081130 module:main\n"
                          "from:0x02000004 kind:call to:0x02090000 module:main\n")
             with open(os.path.join(root, region + ".cpp"), "w") as fh:
-                fh.write(f"// {region.upper()}: func_02090000\nARM void {region}_only() {{}}\n")
+                fh.write(f"// {region.upper()}: func_02090000\nARM void poisoned_{region}_tag() {{}}\n")
                 if region == "usa":
                     fh.write("// USA: func_02081130\nARM void SetOrClearEntryFlag0x102081130() {}\n")
+            image = os.path.join(root, "extract", region, "arm9")
+            os.makedirs(image)
+            with open(os.path.join(image, "arm9.bin"), "wb") as fh:
+                fh.write(bytes.fromhex("0000a0e10000a0e1"))
         subprocess.run(["git", "-C", root, "add", "."], check=True, capture_output=True)
         for region in ("usa", "jpn", "eur"):
             with patch.object(buildcfg, "REGION", region), patch.object(_kp, "REPO", root):
@@ -2129,7 +2347,9 @@ def _scaffold_region_tags():
             if f'extern "C" void {wanted}();' not in output or refs != 2:
                 return f"{region} resolved concrete callee 02081130 incorrectly"
             if f'extern "C" void {region}_only();' not in output:
-                return f"{region} lost its source-tag name lookup"
+                return f"{region} lost its canonical symbol name"
+            if "poisoned_" in output:
+                return f"{region} let a source tag replace its canonical symbol"
             if any(f'void {other}_only();' in output for other in ("usa", "jpn", "eur") if other != region):
                 return f"{region} used another region's source name"
             if f"// {region.upper()}: func_02000000" not in output:
@@ -2174,6 +2394,60 @@ def _kit_init_region_dependencies():
                         return f"selection {selection!r} accepted a missing selected-region ROM"
 
 
+@check("regionsync keeps the ported modules that build when another ported module is red",
+       "one bad JPN port turned ov025 red; regionsync restored all of config/jpn, so every later "
+       "integration ported nothing to JPN")
+def _regionsync_restores_only_red_modules():
+    import subprocess
+    from types import SimpleNamespace
+    try:
+        rs = load("regionsync")
+    except SystemExit:
+        return "importing regionsync ran it"
+    os.makedirs(f"{SP}/handwork", exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="regionsync_regress_", dir=f"{SP}/handwork",
+                                     ignore_cleanup_errors=True) as root:
+        def git(*args):
+            return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True).stdout.strip()
+        main, ov025 = f"{root}/config/jpn/arm9", f"{root}/config/jpn/arm9/overlays/ov025"
+        for folder in (ov025, f"{root}/extract/jpn", f"{root}/tools"):
+            os.makedirs(folder)
+        for folder in (main, ov025):
+            with open(f"{folder}/delinks.txt", "w") as f:
+                f.write("    .text start:0x02000000 end:0x02000004\n")
+        with open(f"{root}/tools/port.py", "w") as f:
+            f.write('import sys\nif "--help" in sys.argv:\n    print("--sync")\n    sys.exit()\n'
+                    'for folder, name in (("config/jpn/arm9", "a"), ("config/jpn/arm9/overlays/ov025", "b")):\n'
+                    '    with open(folder + "/delinks.txt", "a") as f:\n'
+                    '        f.write(f"\\nsrc/{name}.cpp:\\n    complete\\n    .text start:0x2 end:0x4\\n")\n')
+        git("init", "-q")
+        git("config", "user.name", "regress")
+        git("config", "user.email", "regress@localhost")
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+
+        def green():
+            red = "src/b.cpp" in open(f"{ov025}/delinks.txt").read()
+            return not red, "[INFO ] Check ARM9 main: OK\n[INFO ] Check overlay 25: checksum failed\n" if red else ""
+        real = rs.run
+        rs.run = lambda *args: (0, "") if args[0] == "ninja" else real(*args)
+        rs.green, rs.configure, rs.kitpaths = green, lambda region: (0, ""), SimpleNamespace(SP=root)
+        cwd = os.getcwd()
+        os.chdir(root)
+        try:
+            code, line = rs.sync("jpn", "tools/port.py")
+        finally:
+            os.chdir(cwd)
+        if "src/a.cpp" not in git("show", "HEAD:config/jpn/arm9/delinks.txt"):
+            return f"the module that built was not committed: {line}"
+        if ("src/b.cpp" in git("show", "HEAD:config/jpn/arm9/overlays/ov025/delinks.txt")
+                or git("status", "--porcelain", "--", "config")):
+            return f"the red module was committed or left in the tree: {line}"
+        if git("log", "-1", "--format=%s") != "Port 1 matched files to JPN" or code != 1:
+            return f"reported as {code}: {line}"
+    return None
+
+
 STAMP = f"{SP}/wlog/functional_stamp.txt"
 
 
@@ -2188,6 +2462,23 @@ def _external_gate_state():
         return "gate does not preserve to external state with a visible failure"
     if 'os.replace(_tmp,' not in gate or 'ELFFile(io.BytesIO(_fh.read()))' not in diff:
         return "snapshot publication is not atomic or differ retains an open object handle"
+
+@check("pipetest mutates an emitted callee rather than an inactive regional declaration",
+       "0205faf4 and 0206f81c selected JP-only callees during USA tests and falsely reported gate holes")
+def _active_callee_mutation():
+    import pipetest
+    source = ('#if defined(jpn)\nextern "C" void func_020e0484();\n#endif\n'
+              'extern "C" void func_020457e0();\n'
+              'ARM void func_0205faf4() { func_020457e0(); }\n')
+    for symbols in ({"func_020457e0"}, {"_Z13func_020457e0v"}):
+        result = pipetest.mut_callee(source, "0205faf4", symbols)
+        if result != (source.replace("func_020457e0", "func_deadbeef"), "UNDEF"):
+            return "did not select the emitted callee while preserving the inactive declaration"
+    if pipetest.mut_callee(source, "0205faf4", set()) is not None:
+        return "selected a callee without an emitted undefined relocation"
+    if pipetest.mut_callee(source, "0205faf4", {"func_0205faf4"}) is not None:
+        return "selected the function's own definition"
+
 
 if __name__ == "__main__":
     slow = "--slow" in sys.argv

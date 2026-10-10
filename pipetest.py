@@ -87,7 +87,37 @@ def mut_body(txt):
     return txt[:m.start(2)] + v + txt[m.end(2):], "BYTEDIFF"
 
 
-def mut_callee(txt, own_addr):
+def referenced_undefineds(path, state):
+    """Only emitted relocations identify callees active in the selected region."""
+    import buildcfg
+    from elftools.elf.elffile import ELFFile
+    fd, obj = tempfile.mkstemp(suffix=".o", prefix="callee_probe_", dir=state)
+    os.close(fd)
+    try:
+        command = buildcfg.tool_command(buildcfg.CC) + list(buildcfg.FLAGS)
+        result = subprocess.run(command + ["-c", path, "-o", obj], cwd=REPO,
+                                capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError("callee probe compile failed: " + result.stdout + result.stderr)
+        with open(obj, "rb") as handle:
+            elf = ELFFile(handle)
+            names = set()
+            for section in elf.iter_sections():
+                if section["sh_type"] not in ("SHT_REL", "SHT_RELA"):
+                    continue
+                if not elf.get_section(section["sh_info"])["sh_flags"] & 2:
+                    continue
+                symbols = elf.get_section(section["sh_link"])
+                for reloc in section.iter_relocations():
+                    symbol = symbols.get_symbol(reloc["r_info_sym"])
+                    if symbol["st_shndx"] == "SHN_UNDEF":
+                        names.add(symbol.name)
+            return names
+    finally:
+        os.remove(obj)
+
+
+def mut_callee(txt, own_addr, active_symbols):
     """Point a CALL at a symbol that does not exist.
 
     It must be a genuine callee, never the function's own name: renaming the definition emits no
@@ -95,7 +125,8 @@ def mut_callee(txt, own_addr):
     is not there. That false positive is exactly the kind of claim this harness exists to prevent.
     """
     for m in re.finditer(r"\b(func_[0-9a-fA-F]{8})\s*\(", txt):
-        if m.group(1) != f"func_{own_addr.lower()}":
+        if (m.group(1) != f"func_{own_addr.lower()}"
+                and any(m.group(1) in name for name in active_symbols)):
             return txt.replace(m.group(1), "func_deadbeef"), "UNDEF"
     return None
 
@@ -128,8 +159,9 @@ def main():
             failed += 1
             print(f"REGRESSION  {addr} committed source no longer gates: {verdict[:80]}")
 
+        active_symbols = referenced_undefineds(path, state)
         for label, fn in MUTATIONS:
-            made = fn(txt, addr) if fn is mut_callee else fn(txt)
+            made = fn(txt, addr, active_symbols) if fn is mut_callee else fn(txt)
             if not made:
                 continue
             broken, want = made

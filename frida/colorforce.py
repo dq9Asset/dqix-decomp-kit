@@ -59,6 +59,11 @@ function colorgraph(head) {
   const flipHere = CFG.call === -1 || CFG.call === call;
   if (flipHere) {
     let swapped = false;
+    for (const mv of (CFG.moves || [])) {
+      let at = -1;
+      for (let k = 0; k < nodes.length; k++) if (nodes[k].add(0x28).readS16() === mv[0]) at = k;
+      if (at >= 0) { nodes.splice(mv[1], 0, nodes.splice(at, 1)[0]); swapped = true; }
+    }
     for (const p of ORDERS) {
       if (p + 1 >= nodes.length) continue;
       const t = nodes[p]; nodes[p] = nodes[p + 1]; nodes[p + 1] = t;

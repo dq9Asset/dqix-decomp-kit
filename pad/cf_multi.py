@@ -8,21 +8,6 @@ import sys
 sys.path.insert(0, (_kp.KIT + "/frida"))
 import colorforce as cf  # noqa: E402
 
-OLD_ORDER = """  if (flipHere && CFG.kind === 'order' && CFG.pos + 1 < nodes.length) {"""
-NEW_ORDER = """  if (flipHere && CFG.moves) {
-    for (const mv of CFG.moves) {
-      let at = -1;
-      for (let k = 0; k < nodes.length; k++) if (nodes[k].add(0x28).readS16() === mv[0]) at = k;
-      if (at >= 0) { const t = nodes.splice(at, 1)[0]; nodes.splice(mv[1], 0, t); }
-    }
-    for (let i = 0; i < nodes.length; i++) nodes[i].writePointer(i + 1 < nodes.length ? nodes[i + 1] : ptr(0));
-  }
-  if (flipHere && CFG.kind === 'order' && CFG.pos + 1 < nodes.length) {"""
-OLD_CHOICE = """if (flipHere && CFG.kind === 'choice' && CFG.idx === idx && cands.length > 1) pick = 1;"""
-NEW_CHOICE = """if (flipHere && CFG.choices && CFG.choices.indexOf(idx) >= 0 && cands.length > 1) pick = 1;"""
-assert OLD_ORDER in cf.JS and OLD_CHOICE in cf.JS
-cf.JS = cf.JS.replace(OLD_ORDER, NEW_ORDER).replace(OLD_CHOICE, NEW_CHOICE)
-
 src, mod, addr, size, pool_from = sys.argv[1], sys.argv[2], int(sys.argv[3], 16), int(sys.argv[4], 0), int(sys.argv[5], 16)
 cfg = json.loads(sys.argv[6])
 cfg.setdefault("call", -1)

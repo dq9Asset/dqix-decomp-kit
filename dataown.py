@@ -231,14 +231,19 @@ def plan(elf, text_index, slot, func_addr, pristine, base, module, cfg_dir, repo
         unmapped = [n for n in retired if n not in renamed]
         if users and unmapped:
             return "DATA-NAMEINUSE %s named by %s" % (", ".join(retired[:4]), ", ".join(users[:4]))
+        local_of = {oname: local for oname, local, _bss in starts.values()}
+        writable = {old: new for old, new in renamed.items()
+                    if re.fullmatch(r"[A-Za-z_]\w*", new) and not local_of.get(new)}
         for f in users:
             path = os.path.abspath(os.path.join(repo, f))
-            text, nl = read_keep_nl(path)
-            for old, new in renamed.items():
+            original, nl = read_keep_nl(path)
+            text = original
+            for old, new in writable.items():
                 text = re.sub(r"\b%s\b" % re.escape(old), new, text)
                 text = re.sub(r'(?m)^(\s*)extern\s+(?!"C")([^;\n]*\b%s\b)' % re.escape(new),
                               r'\1extern "C" \2', text)
-            src_edits[path] = (text, nl)
+            if text != original:
+                src_edits[path] = (text, nl)
 
     return {
         "ranges": [(n, s, e) for n, s, e, _i in ranges],

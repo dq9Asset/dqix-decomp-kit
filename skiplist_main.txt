@@ -39,3 +39,6 @@
 020d5d34 Nintendo library code (WirelessDataSharing), exact only at -O4,p, pinned until the decomp maintainers answer the compiler-flag question
 020d5fd0 Nintendo library code (WirelessDataSharing), exact only at -O4,p, pinned until the decomp maintainers answer the compiler-flag question
 020d6318 Nintendo library code (WirelessDataSharing), exact only at -O4,p, pinned until the decomp maintainers answer the compiler-flag question
+020d16b0 NitroSDK ctrdg_proc.c, exact only with optimize_for_size off (the library's ,p build), pinned until the decomp maintainers answer the compiler-flag question
+020c745c NitroSDK stack-size reader (SDK_SYS_STACKSIZE/SDK_IRQ_STACKSIZE), exact at -O2,p and -O4,p (4-op arm branched, conditional add sp/pop), pinned until the decomp maintainers answer the compiler-flag question
+020c0cd0 DGT HMAC library code, exact only at -O4,p (copied framed epilogue on the guard exit, rotated loops), pinned until the decomp maintainers answer the compiler-flag question

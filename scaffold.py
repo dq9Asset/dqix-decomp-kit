@@ -3,8 +3,7 @@
 has to write the logic.
 
 Measured: an unmatched overlay function averages 18.3 callee/data references. `relocs.txt` already
-records the exact target address of every one, and symbols.txt (or the committed source's regional
-tag) gives its real name. Workers currently grep that out one reference at a time — and guessing wrong
+records the exact target address of every one, and symbols.txt gives its real name. Workers currently grep that out one reference at a time — and guessing wrong
 produces UNDEF-SYM / RELOC-WRONG, the two gate errors that force a full retry.
 
 None of that needs a model. This emits:
@@ -21,9 +20,10 @@ Usage: python scaffold.py <module> <addr> [outfile]
 import os as _kpos, sys as _kpsys
 _kpsys.path.insert(0, _kpos.path.dirname(_kpos.path.abspath(__file__)))
 import kitpaths as _kp
-import re, sys, os, glob, subprocess
+import re, sys, os, glob, subprocess, functools
 
 import buildcfg
+import symfix
 
 SP = _kp.SP
 KIT = _kp.KIT
@@ -43,22 +43,7 @@ for p in glob.glob(f"{REPO}/{buildcfg.config_dir('main')}/**/symbols.txt", recur
         if os.path.exists(dl) else []
     BOUNDS[tag] = sorted(set(table) | set(ends))
 
-CNAME = {}
 REGION_TAG = buildcfg.REGION.upper()
-try:
-    out = subprocess.run(["git", "grep", "-h", "-A2", "-E", rf"// {REGION_TAG}: func_(ov[0-9]+_)?[0-9a-fA-F]{{8}}"],
-                         cwd=REPO, capture_output=True, text=True).stdout
-    cur = None
-    for l in out.split('\n'):
-        m = re.search(rf'// {REGION_TAG}: func_(?:ov(\d+)_)?([0-9a-fA-F]{{8}})', l)
-        if m:
-            cur = (f"overlay({int(m.group(1))})" if m.group(1) else "main", int(m.group(2), 16)); continue
-        if cur is not None:
-            f = re.search(r'\b([A-Za-z_]\w*)\s*\(', l)
-            if f and f.group(1) not in ('if', 'for', 'while', 'switch', 'return'):
-                CNAME[cur] = f.group(1); cur = None
-except Exception:
-    pass
 
 
 def object_size(tag, addr):
@@ -69,6 +54,64 @@ def object_size(tag, addr):
 
 def cfg_of(mod):
     return buildcfg.config_dir(mod)
+
+
+@functools.lru_cache(maxsize=None)
+def module_image(mod):
+    blob = open(f"{REPO}/{buildcfg.pristine(mod)}", "rb").read()
+    if mod == "main":
+        return blob, 0x02000000
+    delinks = open(f"{REPO}/{cfg_of(mod)}/delinks.txt", encoding='utf-8', errors='ignore').read()
+    return blob, min(int(s, 16) for s in re.findall(r'start:0x([0-9a-fA-F]+)', delinks))
+
+
+def _signed(value, bits):
+    return value - (1 << bits) if value & (1 << (bits - 1)) else value
+
+
+def rom_calls(mod, a, sz, isa):
+    blob, base = module_image(mod)
+    code = blob[a - base:a - base + sz]
+    calls = []
+    if isa == "arm":
+        words = [(a + i, int.from_bytes(code[i:i + 4], "little")) for i in range(0, len(code) - 3, 4)]
+        pool = {pc + 8 + ((w & 0xfff) if w & 0x800000 else -(w & 0xfff))
+                for pc, w in words if (w & 0x0f7f0000) == 0x051f0000}
+        for pc, w in words:
+            if pc in pool:
+                continue
+            if (w >> 28) != 0xf and (w & 0x0f000000) == 0x0b000000:
+                calls.append((pc, pc + 8 + _signed(w & 0xffffff, 24) * 4))
+            elif (w >> 25) == 0x7d:
+                calls.append((pc, pc + 8 + _signed(w & 0xffffff, 24) * 4 + ((w >> 24) & 1) * 2))
+        return calls
+    halves = [(a + i, int.from_bytes(code[i:i + 2], "little")) for i in range(0, len(code) - 1, 2)]
+    pool = set()
+    for pc, h in halves:
+        if (h & 0xf800) == 0x4800:
+            p = ((pc + 4) & ~3) + (h & 0xff) * 4
+            pool |= {p, p + 2}
+    for (pc, hi), (_n, lo) in zip(halves, halves[1:]):
+        if pc in pool or (hi & 0xf800) != 0xf000 or (lo & 0xe800) != 0xe800:
+            continue
+        off = _signed(((hi & 0x7ff) << 12) | ((lo & 0x7ff) << 1), 23)
+        calls.append((pc, ((pc + 4) & ~3) + off if (lo & 0xf800) == 0xe800 else pc + 4 + off))
+    return calls
+
+
+def callee_decl(nm):
+    if not nm.startswith("_Z"):
+        return nm, f'extern "C" void {nm}();'
+    m = re.match(r'^_Z(\d+)(.+)$', nm)
+    if m:
+        n = int(m.group(1))
+        try:
+            params = symfix.demangle_params(m.group(2)[n:])
+        except (ValueError, IndexError):
+            params = None
+        if params is not None:
+            return m.group(2)[:n], f"void {m.group(2)[:n]}({', '.join(params)});"
+    return nm, f"// C++ callee {nm}: declare the signature it demangles to, without extern \"C\""
 
 
 def scaffold(mod, addr):
@@ -91,9 +134,17 @@ def scaffold(mod, addr):
                 if a <= f < a + sz:
                     rel.append((f, mm.group(2), int(mm.group(3), 16), mm.group(5), mm.group(4)))
 
+    own = "main" if mod == "main" else f"overlay({int(mod)})"
+    covered = {r[0] for r in rel}
+    for frm, to in rom_calls(mod, a, sz, isa):
+        tag = next((t for t in (own, "main") if SYMS.get(t, {}).get(to, ('', ''))[1] == 'function'), None)
+        if tag and frm not in covered:
+            rel.append((frm, "arm_call", to, tag, None))
+    rel.sort(key=lambda r: r[0])
+
     calls, data, seen = [], [], set()
     for frm, kind, to, tag, add in rel:
-        nm = CNAME.get((tag, to)) or (SYMS.get(tag, {}).get(to, (None, None))[0])
+        nm = SYMS.get(tag, {}).get(to, (None, None))[0]
         if not nm or nm in seen:
             continue
         seen.add(nm)
@@ -107,7 +158,7 @@ def scaffold(mod, addr):
     L.append("// (not derivable) — correct them as you go. Delete anything you end up not calling.")
     L.append("")
     for nm, to, frm, _size in sorted(calls, key=lambda x: x[2]):
-        L.append(f'extern "C" void {nm}();   // called at +0x{frm - a:x}  (0x{to:08x})')
+        L.append(f'{callee_decl(nm)[1]}   // called at +0x{frm - a:x}  (0x{to:08x})')
     if data:
         L.append("")
         for nm, to, frm, (size, add) in sorted(data, key=lambda x: x[2]):
@@ -120,7 +171,8 @@ def scaffold(mod, addr):
     # 11.6k tokens, more than double the worker doc — and the worker already fetches the listing with
     # the documented grep. Emit only the CALL MAP: offset -> the callee's correct current name, which
     # is the part they cannot derive. SCAFFOLD_ASM=1 restores the full listing if ever needed.
-    byaddr = {f: (nm, to) for nm, to, f, _size in calls + data}
+    byaddr = {f: (callee_decl(nm)[0], to) for nm, to, f, _size in calls}
+    byaddr.update({f: (nm, to) for nm, to, f, _size in data})
     if byaddr:
         L.append("/* CALL MAP (offset -> resolved name; listing via the grep in the worker doc)")
         for f in sorted(byaddr):

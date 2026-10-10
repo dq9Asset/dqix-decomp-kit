@@ -494,7 +494,8 @@ Inert: a copy helper in any argument order, a pointer local per address.
 ### A SINGLE-DEFINITION LOCAL IS RE-DERIVED AFTER A CALL — give it a second definition
 `int prev = i - 1;` is forward-substituted: mwcc reloads `i` and recomputes `i - 1` after the `bl`,
 where the ROM kept it in callee-saved `fp`. Assign it to a variable that already has another
-definition (`idx = i - 1;`, reusing a dead parameter) (`021d8c30`).
+definition (`idx = i - 1;`, reusing a dead parameter) (`021d8c30`). The same variable split in
+place also works: `last = shown; last -= 1;` instead of `last = shown - 1;` (`021db634`, colorsweep r63).
 A function-wide swap decided by one high-pressure loop: bind the ELEMENT address once
 (`SafeAllocator* alloc = &self->allocs[2]; alloc->Reset();`, pass `alloc`) instead of a base plus
 `&alloc[2]` at each use (`02155e28`).
@@ -1137,7 +1138,8 @@ pointer to the `+0x284` sub-struct took the other register. Try both roots.
 `0215b520`: name BOTH the rooted base (`ents` at `+0xa70`, array at `+0x1000`) and the CSEd offset
 (`off = (k + 4) * 0x88`), define them where the ROM first needs them (after the first store, not at
 the loop top), and use them only at the call sites the ROM computes that way. A `const` byte table
-lets its `ldrb` hoist above a volatile store (also `02173954`, colorsweep r60).
+lets its `ldrb` hoist above a volatile store (also `02173954`, colorsweep r60). A pointer table the
+same: `extern T* const tbl[9];` stops its load being ordered before a global store (`020d22f4`).
 Inside a loop the same re-rooting is spelled as raw pointer arithmetic on the element:
 `((int*)o + i)[0xac/4]` rather than `o->idx[i]` (`0218f088`).
 
@@ -1332,6 +1334,10 @@ repeated eight-call sequence (load overlay, allocate, ctor, stub, run, dtor, fre
 `#define … do { … } while (0)` macro. A block that appears once at the loop head and again at the
 loop tail, with the tail branching back to the head, is written twice in the loop body; mwcc does
 not duplicate it (`main:02000c9c`).
+A step macro whose multi-term sum adds in the wrong order: bind the leaf operand and the sum to
+block-scoped locals inside the macro (`{ unsigned long xv = (w); unsigned long sum = a + f(b, c, d) +
+xv + *t++; a = b + ROTATE_LEFT(sum, s); }`), and give each unrolled round its own `do` counter,
+declared after the word pointer (`020c04e8`).
 
 ## A DESTRUCTOR WRITTEN AS A C++ DESTRUCTOR EMITS THREE OF THEM
 `Class::~Class()` makes mwcc emit the D0 (deleting), D1 (complete) and D2 (base) variants, and under

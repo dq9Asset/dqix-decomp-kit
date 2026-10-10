@@ -11,5 +11,7 @@ extern "C" ARM int Probe(void *ctx, int *out, int k) {
     *out = (k == 3) ? 7 : 9;
     Sink(k == 0, 1);
     Sink((short)k, 2);
+    int last = k - 1;
+    Sink(last, 3);
     return 1;
 }

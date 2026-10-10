@@ -2025,8 +2025,12 @@ _R46_FOR_INT = re.compile(r"for\s*\(\s*int\s+([A-Za-z_]\w*)\s*=")
 
 def _r46_body(lines):
     for i, ln in enumerate(lines):
-        if re.search(r"\b(?:ARM|THUMB)\b.*\(", ln) and ln.rstrip().endswith("{"):
+        if not re.search(r"\b(?:ARM|THUMB)\b.*\(", ln):
+            continue
+        if ln.rstrip().endswith("{"):
             return i + 1
+        if ln.rstrip().endswith(")") and i + 1 < len(lines) and lines[i + 1].strip() == "{":
+            return i + 2
     return None
 
 
@@ -2506,19 +2510,25 @@ def r59_reuse_earlier_local(text):
     return out
 
 
-_R60_EXTERN = re.compile(r'(?m)^(\s*extern\s+(?:"C"\s+)?)((?:unsigned |signed )?(?:char|short|int|long)\s+[A-Za-z_]\w*\s*\[)')
+_R60_EXTERN = re.compile(r'(?m)^(\s*extern\s+(?:"C"\s+)?)((?:unsigned |signed )?(?:char|short|int|long)\s+)([A-Za-z_]\w*)(\s*\[)')
+_R60_PTR_EXTERN = re.compile(r'(?m)^(\s*extern\s+(?:"C"\s+)?)((?:(?:const|unsigned|signed|struct)\s+)*[A-Za-z_]\w*\s*\*+\s*)'
+                             r'([A-Za-z_]\w*)(\s*\[)')
 
 
 def r60_const_extern_table(text):
     out = []
-    for m in _R60_EXTERN.finditer(text):
-        if "const" in m.group(1):
-            continue
-        new = text[:m.start()] + m.group(1) + "const " + m.group(2) + text[m.end():]
-        name = re.match(r"(?:unsigned |signed )?(?:char|short|int|long)\s+([A-Za-z_]\w*)", m.group(2)).group(1)
-        if re.search(r"(?<![\w.>])%s\s*\[[^\]]*\]\s*(?:[-+*/|&^]?=(?!=)|\+\+|--)" % re.escape(name), text):
-            continue
-        out.append(("constextern:%s" % name, new))
+    for pat, before_name in ((_R60_EXTERN, False), (_R60_PTR_EXTERN, True)):
+        for m in pat.finditer(text):
+            name = m.group(3)
+            if name == "const" or (not before_name and "const" in m.group(1)):
+                continue
+            if re.search(r"(?<![\w.>])%s\s*\[[^\]]*\]\s*(?:[-+*/|&^]?=(?!=)|\+\+|--)" % re.escape(name), text):
+                continue
+            if before_name:
+                new = text[:m.start()] + m.group(1) + m.group(2).rstrip() + " const " + name + m.group(4) + text[m.end():]
+            else:
+                new = text[:m.start()] + m.group(1) + "const " + m.group(2) + name + m.group(4) + text[m.end():]
+            out.append(("constextern:%s" % name, new))
     return out
 
 
@@ -2551,6 +2561,68 @@ def r62_iro_align(text):
     return [("iroalign:%s" % name, text[:m.end(1)] + " __attribute__((aligned(4)))" + text[m.end(1):])]
 
 
+_R63_ASSIGN = re.compile(r"^(\s*)((?:(?:unsigned|signed|const|volatile|struct)\s+)*[A-Za-z_][\w:]*(?:\s*\*+\s*|\s+))?"
+                         r"([A-Za-z_]\w*)\s*=(?!=)\s*([^;]+?)\s*;\s*$")
+_R63_TIERS = (("|",), ("^",), ("&",), ("<<", ">>"), ("+", "-"), ("*", "/", "%"))
+_R63_SPLITS = ("|", "^", "&", "<<", "+", "-", "*")
+_R63_OPERAND_END = re.compile(r"[\w)\]'\"]")
+
+
+def _r63_top_ops(expr):
+    ops, depth, i, prev = [], 0, 0, ""
+    while i < len(expr):
+        ch, two = expr[i], expr[i:i + 2]
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif depth == 0:
+            if two in ("<<", ">>", "->", "::"):
+                if two in ("<<", ">>"):
+                    ops.append((i, two))
+                i += 2
+                prev = two[-1]
+                continue
+            if two in ("&&", "||", "==", "!=", "<=", ">=", "++", "--") or ch in "?,=<>":
+                return None
+            if ch in "|^&+-*/%" and _R63_OPERAND_END.match(prev or " "):
+                ops.append((i, ch))
+        if not ch.isspace():
+            prev = ch
+        i += 1
+    return ops
+
+
+def r63_split_assign_op(text):
+    lines = text.split("\n")
+    start = _r46_body(lines)
+    if start is None:
+        return []
+    out = []
+    for i in range(start, len(lines)):
+        m = _R63_ASSIGN.match(lines[i])
+        if not m or (m.group(2) or "").strip() in ("return", "else", "case", "goto", "delete", "throw"):
+            continue
+        ind, typ, name, rhs = m.group(1), m.group(2) or "", m.group(3), m.group(4)
+        ops = _r63_top_ops(rhs)
+        if not ops:
+            continue
+        tier = next(t for t in _R63_TIERS if any(op in t for _p, op in ops))
+        at, op = [o for o in ops if o[1] in tier][-1]
+        e, k = rhs[:at].strip(), rhs[at + len(op):].strip()
+        if op not in _R63_SPLITS or not e or not k or e == name or re.search(_r52_word(name), k):
+            continue
+        if re.search(r"(?<![\w.>])(?!sizeof\b)[A-Za-z_]\w*\s*\(", k):
+            continue
+        declared = re.search(r"\b(float|double)\s+\**\s*%s\b" % re.escape(name), text)
+        if declared or "float" in typ or "double" in typ:
+            continue
+        new = list(lines)
+        new[i:i + 1] = ["%s%s%s = %s;" % (ind, typ, name, e), "%s%s %s= %s;" % (ind, name, op, k)]
+        out.append(("splitop:%s@%d" % (name, i), "\n".join(new)))
+    return out
+
+
 RULES = (r62_iro_align, r61_memset_to_clear,r60_const_extern_table,r59_reuse_earlier_local,r58_split_loop_counter,r57_call_into_preceding_if,r56_drop_last_arg,r43_short_cast_in_add,r44_volatile_split_store, r45_accumulate_or, r46_counter_position,
          r47_ternary_store, r48_inline_index, r49_sink_into_loop, r50_narrow_flag, r51_short_spill,
          r52_inline_address_local, r53_update_in_place, r54_two_def_offset, r55_load_then_transform,
@@ -2564,7 +2636,7 @@ RULES = (r62_iro_align, r61_memset_to_clear,r60_const_extern_table,r59_reuse_ear
          r32_sink_store_into_arms, r33_field_signedness, r34_call_move_earlier,
          r35_chain_const_stores, r36_volatile_extern, r37_volatile_alias, r38_guarded_do_while,
          r39_split_pointer_add, r40_bind_call_operand, r41_nonfoldable_constant, r42_drop_noop_case,
-         r17_decl_permute)
+         r63_split_assign_op, r17_decl_permute)
 
 
 def neighbours(text):

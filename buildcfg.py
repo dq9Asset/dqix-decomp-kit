@@ -78,9 +78,12 @@ def pristine(mod):
     return f"extract/{REGION}/arm9_overlays/ov{mod}.bin"
 
 
+SDK_LCF_SYMBOLS = {"SDK_IRQ_STACKSIZE": 0x400, "SDK_SYS_STACKSIZE": 0}
+
+
 def lcf_symbols():
     overlays = [d for d in os.listdir(f"{REPO}/{config_dir('main')}/overlays") if re.fullmatch(r"ov\d+", d)]
-    return {f"OVERLAY_{int(d[2:])}_ID": int(d[2:]) for d in overlays}
+    return {**SDK_LCF_SYMBOLS, **{f"OVERLAY_{int(d[2:])}_ID": int(d[2:]) for d in overlays}}
 
 
 def cc_path(version):
