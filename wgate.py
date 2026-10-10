@@ -117,13 +117,10 @@ def fail(msg, cls="UNKNOWN", metric=-1, detail="", hint=""):
     sys.exit(1)
 # accept THUMB as well as ARM. Every genwave/classify/integrate regex used to demand `(arm,...)`,
 # so the pipeline could not even SEE the 166 thumb functions, let alone gate one.
-m=re.search(rf'{PFX}{ADDR} kind:function\((arm|thumb),size=0x([0-9a-fA-F]+)\)', symtxt, re.I)
-if not m:
-    # ADDRESS fallback, as wdiff.py already had. A function is renamed to a semantic
-    # name once it matches, so a name-keyed lookup reports NO-SLOT for work that is
-    # finished -- which reads as a broken candidate instead of "already done".
-    m=re.search(r'\S+ kind:function\((arm|thumb),size=0x([0-9a-fA-F]+)\) addr:0x0*%s\b'
-                % ADDR.lstrip('0'), symtxt, re.I)
+# The requested physical address is authoritative. Regional canonical names can
+# contain another function's address, so a name-derived lookup can select its slot.
+m=re.search(r'(?m)^\S+ kind:function\((arm|thumb),size=0x([0-9a-fA-F]+)\) addr:0x0*%s\b'
+            % ADDR.lstrip('0'), symtxt, re.I)
 if not m: fail(f"NO-SLOT: {PFX}{ADDR} not a function in symbols.txt")
 ISA, slot = m.group(1), int(m.group(2),16)
 if SEC is None:

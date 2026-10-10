@@ -2480,6 +2480,44 @@ def _active_callee_mutation():
         return "selected the function's own definition"
 
 
+
+@check("wgate selects ISA and size by physical address, not raw-name suffix",
+       "JP021d4af8 was584B but raw name func_ov017_021d4af8 belonged at021d4f48/164B; name-first selected the wrong slot")
+def _gate_slot_address():
+    source = open(f"{KIT}/wgate.py", encoding="utf-8").read()
+    start = source.index("# accept THUMB as well as ARM.")
+    selection = source[start:source.index("if SEC is None:", start)]
+    def missing(message, *args, **kwargs):
+        raise ValueError(message)
+    cases = [
+        ("renamed ARM with colliding raw name", "021d4af8", "func_ov017_",
+         "func_ov017_021d4af8 kind:function(thumb,size=0xa4) addr:0x021d4f48\n"
+         "func_ov017_021d46a4 kind:function(arm,size=0x248) addr:0x021d4af8\n", ("arm", 584)),
+        ("renamed Thumb", "02001000", "func_",
+         "SemanticName kind:function(thumb,size=0x20) addr:0x02001000\n", ("thumb", 32)),
+        ("ordinary raw ARM", "02001000", "func_",
+         "func_02001000 kind:function(arm,size=0x30) addr:0x02001000\n", ("arm", 48)),
+        ("ordinary raw Thumb", "02001000", "func_",
+         "func_02001000 kind:function(thumb,size=0x10) addr:0x02001000\n", ("thumb", 16)),
+        ("missing", "02001000", "func_", "", None),
+        ("missing despite same raw name elsewhere", "02001000", "func_",
+         "func_02001000 kind:function(arm,size=0x30) addr:0x02002000\n", None),
+        ("data at requested address is not a function", "02001000", "func_",
+         "data_02001000 kind:data size:0x30 addr:0x02001000\n", None),
+    ]
+    for label, address, prefix, symbols, expected in cases:
+        namespace = dict(re=re, ADDR=address, PFX=prefix, symtxt=symbols, fail=missing)
+        try:
+            exec(selection, namespace)
+            actual = (namespace["ISA"], namespace["slot"])
+        except ValueError as error:
+            if not str(error).startswith("NO-SLOT:"):
+                return label + ": unexpected error " + str(error)
+            actual = None
+        if actual != expected:
+            return "%s: got %r, expected %r" % (label, actual, expected)
+
+
 if __name__ == "__main__":
     slow = "--slow" in sys.argv
     nbad = run_functional() if slow else 0
