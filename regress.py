@@ -1639,7 +1639,7 @@ def _prready():
                 with open(os.path.join(repo, path), "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(text)
             git(repo, "add", "-A")
-            git(repo, "commit", "-qm", "x")
+            git(repo, "commit", "--allow-empty", "-qm", "x")
 
         pub_decomp, pub_kit, decomp, kit = (f"{d}/{n}" for n in ("pub_decomp", "pub_kit", "decomp", "kit"))
         for repo, branch in ((pub_decomp, "decomp-matching"), (pub_kit, "main")):
@@ -1672,6 +1672,55 @@ def _prready():
             code, out = prready(mode)
             if code != 0:
                 return f"a current checkout was refused by prready.py {mode}: {out.strip()[-300:]}"
+        on = "#pragma optimize_for_size on\nvoid Foo() {}\n"
+        off = "#pragma optimize_for_size off\nvoid Foo() {}\n"
+        pragma_cases = [
+            ("on to off", on, off, True),
+            ("balanced replacement", "#pragma opt_common_subs off\nvoid Foo() {}\n", off, True),
+            ("existing off, body edit", off, off.replace("{}", "{ int x = 1; }"), False),
+            ("comment-only move", off, "// moved past a comment\n\n" + off, False),
+            ("block comment", "void Foo() {}\n", "/*\n#pragma optimize_for_size off\n*/\nvoid Foo() {}\n", False),
+            ("uncommented directive", "/*\n#pragma optimize_for_size off\n*/\nvoid Foo() {}\n", off, True),
+            ("raw string", "void Foo() {}\n", 'const char* s = R"x(\n#pragma optimize_for_size off\n)x";\nvoid Foo() {}\n', False),
+            ("duplicate", off, "#pragma optimize_for_size off\n" + off, True),
+            ("different function", off + "void Bar() {}\n", "void Foo() {}\n#pragma optimize_for_size off\nvoid Bar() {}\n", True),
+            ("expanded range", off, off + "void Bar() {}\n", True),
+            ("outside off range", off + "#pragma optimize_for_size reset\n",
+             off + "#pragma optimize_for_size reset\nvoid Bar() {}\n", False),
+            ("moved reset", off + "#pragma optimize_for_size reset\nvoid Bar() {}\n",
+             off + "void Bar() {}\n#pragma optimize_for_size reset\n", True),
+            ("record range needs review", "#pragma optimize_for_size off\nstruct S { void A() {} };\n",
+             "#pragma optimize_for_size off\nstruct S { void A() {} void B() {} };\n", True),
+            ("namespace range needs review", "namespace N {\n" + off + "}\n",
+             "namespace N {\n" + off + "void Bar() {}\n}\n", True),
+            ("existing record, comment edit", "#pragma optimize_for_size off\nstruct S { void A() {} };\n",
+             "#pragma optimize_for_size off\nstruct S { /* unchanged */ void A() {} };\n", False),
+            ("changed conditional", "#if A\n" + off + "#endif\n", "#if B\n" + off + "#endif\n", True),
+            ("changed character condition", "#if REGION == 'J'\n" + off + "#endif\n",
+             "#if REGION == 'U'\n" + off + "#endif\n", True),
+            ("unchanged character condition", "#if REGION == 'J'\n" + off + "#endif\n",
+             "#if REGION == /* kept */ 'J'\n" + off + "#endif\n", False),
+            ("line continuation", off, "#pragma optimize_for_size \\\n off\nvoid Foo() {}\n", False),
+        ]
+        for label, before, after, blocked in pragma_cases:
+            commit(pub_decomp, {"src/A.cpp": before})
+            git(decomp, "fetch", "-q", "origin")
+            git(decomp, "reset", "--hard", "origin/decomp-matching")
+            commit(decomp, {"src/A.cpp": after})
+            code, out = prready("decomp")
+            if code != int(blocked) or ("CODEGEN PRAGMA" in out) != blocked:
+                return f"pragma {label}: exit {code}, expected blocked={blocked}: {out.strip()[-400:]}"
+        commit(pub_decomp, {"src/A.cpp": off, "src/B.cpp": "void Bar() {}\n"})
+        git(decomp, "fetch", "-q", "origin")
+        git(decomp, "reset", "--hard", "origin/decomp-matching")
+        commit(decomp, {"src/A.cpp": "void Foo() {}\n",
+                        "src/B.cpp": "#pragma optimize_for_size off\nvoid Bar() {}\n"})
+        code, out = prready("decomp")
+        if code != 1 or "CODEGEN PRAGMA src/B.cpp" not in out:
+            return f"a pragma moved across files passed: exit {code}: {out.strip()[-400:]}"
+        commit(pub_decomp, {"src/A.cpp": "void Foo() {}\n"})
+        git(decomp, "fetch", "-q", "origin")
+        git(decomp, "reset", "--hard", "origin/decomp-matching")
         commit(decomp, {".github/workflows/match.yml": "on: pull_request\n",
                         "src/Dead.cpp": "void Dead() {}\n",
                         "src/A.cpp": "#pragma optimize_for_size off\nvoid Foo() {}\n#pragma optimize_for_size reset\n",
@@ -1684,7 +1733,7 @@ def _prready():
         commit(pub_decomp, {"src/A.cpp": "void Foo() { }\n"})
         commit(pub_kit, {"README.md": "x\n"})
         want = {"decomp": ("KIT BEHIND", "DECOMP BEHIND", "OUTSIDE A MATCH .github/workflows/match.yml",
-                           "DEAD FILE src/Dead.cpp", "HALF RENAME Foo", "CODEGEN PRAGMA src/A.cpp: adds 2"),
+                           "DEAD FILE src/Dead.cpp", "HALF RENAME Foo", "#pragma optimize_for_size off", "#pragma optimize_for_size reset"),
                 "kit": ("KIT BEHIND", "NO DEAD ENDS", "UNPROVEN CITATION 02000400")}
         for mode, needles in want.items():
             code, out = prready(mode)
