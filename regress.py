@@ -7034,6 +7034,34 @@ def _repairsweep_sweeps_once():
     return None
 
 
+@check("CLion forwards candidate paths and regions to the decomp generator",
+       "the mwcc command cannot be used as a Clang project model, and relative WIP paths break after changing into the decomp")
+def _clion_project_command():
+    from pathlib import Path
+    from types import SimpleNamespace
+    import clion
+    with tempfile.TemporaryDirectory(prefix="clion kit ") as directory:
+        root = Path(directory)
+        (root / "tools").mkdir()
+        (root / "tools/ide_compdb.py").write_text("", encoding="utf-8")
+        old_repo = clion.kitpaths.REPO
+        try:
+            clion.kitpaths.REPO = str(root)
+            args = SimpleNamespace(region="eur", compiler="C:/LLVM folder/clang.exe",
+                                   build="runtime", source=[Path("candidate with spaces.cpp")])
+            got = clion.command(args)
+            if got[:4] != [sys.executable, str(root / "tools/configure.py"), "eur", "--ide"]:
+                return "did not delegate to the selected decomp/region"
+            if got[got.index("--ide-source") + 1] != str(Path(args.source[0]).resolve()):
+                return "candidate path was not made absolute before changing directory"
+            if got[got.index("--ide-compiler") + 1] != args.compiler:
+                return "compiler path with spaces was split"
+            if got[got.index("--ide-build") + 1] != "runtime":
+                return "lost the candidate's build family"
+        finally:
+            clion.kitpaths.REPO = old_repo
+
+
 if __name__ == "__main__":
     if "--shard" in sys.argv:
         run_shard([int(i) for i in sys.argv[sys.argv.index("--shard") + 1].split(",") if i])
