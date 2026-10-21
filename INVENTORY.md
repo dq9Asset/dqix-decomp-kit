@@ -14,7 +14,6 @@ file that does not exist, nothing keys symbol lookups on the `func_` name, nothi
 
 | file | job |
 |---|---|
-| `clion.py [usa\|jpn\|eur] [--source FILE] [--build FAMILY]` | generate the decomp's indexing-only CLion compilation database through its own `configure.py`; resolve `REPO` through `kitpaths`, optionally include individual external candidates, and keep source and matching builds unchanged |
 | `kitpaths.py [kit\|state\|repo]` | `KIT` (this checkout: code only), `SP` (the state directory outside it: `$DQIX_STATE`, else `state.path`, else `../dqix-kit-state`), `REPO` (`$DQIX_REPO`, default `../dqix-decomp`), `CLAUDE_PROJECTS`; every script reads its paths here, shell scripts through the CLI |
 | `spans.py` | `Spans(ranges)`: merged half-open address ranges answering `addr in spans` by bisection; a script that asks whether an address is delinked uses it instead of scanning every range |
 | `elfobj.py` | `ELFFile(stream)`: the sections, symbols and relocations of a 32-bit ARM object read with `struct`, field for field what pyelftools reports (anything else is handed to pyelftools); `wgate`, `wdiff` and `mechclean.verify` parse with it |

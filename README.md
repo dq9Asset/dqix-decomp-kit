@@ -92,7 +92,6 @@ explains every step.
 `clsbest/`, `claims/`, `scaffold/`, `doc_cache/`, `attempts/`, `quarantine/`, `refs/`.
 
 ## Docs
-For CLion definition jumps and Find Usages, see [docs/CLION.md](docs/CLION.md).
 
 - [docs/SETUP.md](docs/SETUP.md) — prerequisites, environment, reference decomps, Frida
 - [docs/WORKFLOW.md](docs/WORKFLOW.md) — one function from address to commit
